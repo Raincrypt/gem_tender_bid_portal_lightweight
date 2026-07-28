@@ -5,7 +5,6 @@ import {
   ExternalLink, 
   RefreshCw, 
   Download, 
-  Layers, 
   FolderOpen, 
   Building2, 
   ListChecks, 
@@ -31,8 +30,6 @@ import {
   RULE_CHECK_R2_THRESHOLD, 
   RULE_CHECK_R3_MIN_COUNT, 
   RULE_CHECK_R3_THRESHOLD,
-  PAGE_FILTER_CONTRACT_SIGNALS,
-  PAGE_FILTER_BOILERPLATE_SIGNALS,
 } from '../config/config';
 
 const API_BASE_URL = 'http://localhost:5000/api/bids';
@@ -253,9 +250,7 @@ function EditableField({
 }
 
 export default function Dashboard() {
-  const [isProcessing, setIsProcessing] = useState(false);
   const [extractedData, setExtractedData] = useState([]);
-  const [progress, setProgress] = useState({ current: 0, total: 1, file: '', currentFileIndex: 0, totalFiles: 0 });
 
   const [editingCell, setEditingCell] = useState(null);
   const [editValue, setEditValue] = useState('');
@@ -734,55 +729,6 @@ export default function Dashboard() {
     });
   };
 
-  const handleFileUpload = async (e) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
-
-    setIsProcessing(true);
-    const BATCH_SIZE = 25; // Process 25 files at a time to keep memory lean
-    let unwrittenBuffer = [];
-
-    for (let index = 0; index < files.length; index++) {
-      const currentFile = files[index];
-
-      setProgress({
-        current: index + 1,
-        total: files.length,
-        file: currentFile.name,
-        currentFileIndex: index + 1,
-        totalFiles: files.length
-      });
-
-      try {
-        const parsedResults = await parsePdfFileContextAsync(currentFile);
-        unwrittenBuffer.push(...parsedResults);
-
-        // Every 50 records or at the end, flush to PostgreSQL and release memory
-        if (unwrittenBuffer.length >= 50 || index === files.length - 1) {
-          await saveToPostgresInChunks(unwrittenBuffer);
-          unwrittenBuffer = [];
-        }
-
-        // Clean up cached Blob URLs periodically to free browser V8 memory
-        if (fileBlobsMapRef.current.has(currentFile.name)) {
-          const blobUrl = fileBlobsMapRef.current.get(currentFile.name);
-          URL.revokeObjectURL(blobUrl);
-          fileBlobsMapRef.current.delete(currentFile.name);
-        }
-
-        // Yield execution back to the browser UI thread every 10 files
-        if (index % 10 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-      } catch (error) {
-        console.error(`Error parsing file ${currentFile.name}:`, error);
-      }
-    }
-
-    setIsProcessing(false);
-    e.target.value = null;
-  };
-
   const triggerFolderBrowse = () => {
     if (folderInputRef.current) folderInputRef.current.click();
   };
@@ -895,37 +841,6 @@ export default function Dashboard() {
       <input type="file" ref={fileInputRef} accept=".pdf" className="hidden" onChange={handleVerifyFileRedirect} />
 
       <div className="max-w-4xl mx-auto">
-        <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
-          <header className="flex items-center space-x-2 mb-2 text-blue-600">
-            <Layers size={18} className={isProcessing ? "animate-spin" : ""} />
-            <span className="text-xs font-bold uppercase tracking-wider">Enterprise Automation Architecture Active</span>
-          </header>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">Upload Contracts / Documents</h2>
-          <p className="text-sm text-gray-500 mb-6">Select up to 3 PDFs simultaneously. The unified routing engine handles stacked multi-contracts, single variants, and PSU layouts sequentially.</p>
-          
-          <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:bg-gray-50 hover:border-blue-500 transition duration-150">
-            <figure className="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4 w-full">
-              {isProcessing ? (
-                <figcaption className="w-full max-w-md">
-                  <RefreshCw className="h-10 w-10 text-blue-500 animate-spin mb-3 mx-auto" />
-                  <p className="text-sm font-semibold text-blue-600">
-                    Processing Asset {progress.currentFileIndex} of {progress.totalFiles}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5 truncate max-w-xs mx-auto">Active: {progress.file}</p>
-                  <p className="text-[11px] text-blue-500 font-mono mt-2">Running contextual data boundary scanners...</p>
-                </figcaption>
-              ) : (
-                <figcaption className="flex flex-col items-center">
-                  <UploadCloud className="h-10 w-10 text-gray-400 mb-2" />
-                  <p className="text-sm font-medium text-gray-700">Choose contract PDF files to parse</p>
-                  <p className="text-xs text-gray-400 mt-1">Supports multi-selection of distinct documents cleanly</p>
-                </figcaption>
-              )}
-            </figure>
-            <input type="file" multiple accept=".pdf" className="hidden" onChange={handleFileUpload} disabled={isProcessing} />
-          </label>
-        </section>
-
         <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
           <header className="flex items-center space-x-2 mb-2 text-indigo-600">
             <FolderOpen size={20} className={isBulkProcessing ? "animate-pulse" : ""} />

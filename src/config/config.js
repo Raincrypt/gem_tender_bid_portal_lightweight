@@ -124,37 +124,3 @@ export const RULE_CHECK_R2_THRESHOLD = 562000; // 5.62 Lakhs
 
 export const RULE_CHECK_R3_MIN_COUNT = 1;
 export const RULE_CHECK_R3_THRESHOLD = 720000; // 7.20 Lakhs
-
-// --- Smart Page Router ---
-// Pages that match ANY CONTRACT_SIGNALS entry are always processed.
-// Pages with NO contract signals but at least one BOILERPLATE_SIGNALS
-// entry are classified as legal boilerplate and skipped in the
-// extraction loop. Pages that match neither list are kept (safe default).
-// All matching is case-insensitive substring search.
-export const PAGE_FILTER_CONTRACT_SIGNALS = [
-  'GEMC-',
-  'Contract Generated Date',
-  'Total Contract Value Including',
-  'अनुबंध क्रमांक',
-  'Organisation Name',
-  'Buyer Details',
-  'Service Provider Details',
-  'Consignee Details',
-  'Ministry:',
-  'Work Order Number',
-  'Work Order No',
-];
-
-export const PAGE_FILTER_BOILERPLATE_SIGNALS = [
-  'General Terms and Conditions',
-  'Special Terms and Conditions',
-  'Force Majeure',
-  'Liquidated Damages',
-  'Arbitration',
-  'Indemnification',
-  'Service Level Agreement',
-  'Corrigendum',
-  'Terms of delivery',
-  'Performance Security',
-  'Delivery Period',
-];
