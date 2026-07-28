@@ -1,301 +1,316 @@
-# Enterprise On-Premise Intelligent Document Processing (IDP) System
+# GeM Bid Portal — Contract Extraction & Verification Dashboard
 
-An enterprise-grade, **100% Free and Open-Source Software (FOSS)** pipeline designed for high-accuracy data extraction from complex scanned procurement documents, GeM orders, Letters of Intent (LOIs), and multi-column wage tables (Annexure-II).
+A browser-based tool for extracting structured fields (WO Number, WO Value,
+Date, Ministry/Department) from GeM (Government e-Marketplace) and PSU
+work-order PDFs, verifying them against configurable business rules, and
+exporting the results to Excel. All PDF parsing happens **client-side** in
+the browser; a small Node/Express API persists the results to PostgreSQL.
 
-This project replaces traditional, error-prone OCR stacks (such as `pdf.js` + Tesseract) with a modern **Smart Hybrid Pipeline** that combines visual layout parsing (**Docling**), local open-weight language models (**Ollama / Qwen2.5**), **PostgreSQL**, and a flexible React/Streamlit verification dashboard.
-
----
-
-## Key Features
-
-* **11-Column Composite Extraction Table:** Extracted and validated fields match the exact bid verification matrix (WO Number, WO Value, Date, Cutoff Verification, Ministry/Division, Refinery Check, R1/R2/R3 Rule Check, Completion Certificate, Recommendation).
-* **High Table Accuracy (~92%–96%):** Eliminates cell flattening and column merging by converting visual tables into Markdown matrices before passing them to LLMs.
-* **Centralized Configuration System:** All pipeline settings, LLM parameters, database URIs, date cutoffs, ministry validation lists, and Rule Check thresholds are driven by a single config file.
-* **100% Free & Open-Source:** Zero API fees, zero per-page software licensing costs, and no external service lock-in.
-* **Air-Gapped & Privacy-Compliant:** Runs locally on company servers inside Docker containers; no sensitive procurement data leaves your internal network.
-* **Dual-Inference Fallback:** Leverages fast text LLMs (`Qwen2.5-7B`) for clean pages and falls back to visual vision models (`Qwen2.5-VL-7B`) when encountering severe stamp/watermark overlap.
-* **Human-In-The-Loop (HITL) Interactive Table:** Inline editing, PDF page mapping redirect, and real-time validation re-evaluation.
+> This README describes what the code in this repository actually does.
+> An earlier version of this document described a different, more
+> elaborate architecture (Docling, Ollama, local vision-language models,
+> FastAPI, Docker Compose). None of that exists in this codebase — see
+> **Analysis & Caveats** at the bottom for details.
 
 ---
 
-## Tech Stack & Licensing
+## 1. What It Does
 
-| Component | Selected Technology | License | Core Responsibility |
-| :--- | :--- | :--- | :--- |
-| **Central Config** | `pydantic-settings` / `config.js` | MIT | Single source of truth for LLMs, DB, thresholds, and validation rules. |
-| **Page Filtering** | `pypdf` / `PyMuPDF` | BSD / AGPL | Sub-second text scanning to filter out legal disclaimers and isolate key pages. |
-| **Layout & Table Parser** | **Docling Engine** | MIT | Reconstructs reading order and turns complex tables into clean Markdown grids. |
-| **Inference Engine** | **Ollama** | MIT | Manages local quantized models (`GGUF`) with zero external network dependency. |
-| **Primary Text Model** | **Qwen2.5-7B-Instruct** | Apache 2.0 | High-speed JSON schema extraction from structured Markdown text (~1–2s latency). |
-| **Fallback Vision Model**| **Qwen2.5-VL-7B-Instruct**| Apache 2.0 | Visual extraction fallback for heavily stamped or blurry document pages. |
-| **Schema Validation** | **Pydantic** + **Instructor**| MIT | Guarantees strictly typed, valid JSON matching business requirements. |
-| **Database** | **PostgreSQL** + **`pgvector`**| PostgreSQL | Handles transaction queues, dynamic JSON extractions (`JSONB`), and semantic search. |
-| **Web Dashboard & API** | **React / Streamlit** + **FastAPI** | MIT / Apache 2.0 | Interactive 11-column verification table with split-screen PDF preview. |
+1. You upload one or more GeM/PSU contract PDFs (individually, or as a
+   folder-per-vendor bulk import).
+2. The browser parses each PDF with `pdfjs-dist`, extracts text per page,
+   and runs a set of regex-based heuristics to pull out four fields per
+   work order: **WO Number, WO Value, Date, Ministry/Division**.
+3. If a field can't be found by regex, the browser calls a backend
+   endpoint that asks Google's Gemini API to extract it from the raw page
+   text (optional — the app works without this).
+4. Extracted rows are shown in an editable verification table with
+   computed columns (date-cutoff check, ministry/refinery check, R1/R2/R3
+   eligibility rule, completion certificate, recommendation).
+5. Rows are saved to a PostgreSQL table via the Express API (with a
+   localStorage fallback if the API is unreachable).
+6. The table can be exported to a `.xlsx` file matching the same column
+   layout.
 
 ---
 
-## Project Structure
+## 2. Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend framework | React 19 + Vite |
+| Styling | Tailwind CSS v4 (`@tailwindcss/vite`) |
+| Icons | lucide-react |
+| PDF parsing | `pdfjs-dist` (runs fully in-browser, no server upload) |
+| Excel export | `xlsx` (SheetJS) |
+| Backend | Node.js + Express |
+| Database | PostgreSQL (via `pg`) |
+| AI fallback (optional) | Google Gemini API (`gemini-2.0-flash`), called from the backend only |
+| Auth | Client-side only — `localStorage`, no real session/security (see Analysis) |
+
+There is **no Python, no Docker, no OCR engine, no local LLM/VLM, and no
+vector database** in this codebase, despite what earlier README drafts
+claimed.
+
+---
+
+## 3. Design Philosophy
+
+- **Single-file dashboard.** All extraction logic, table UI, editing, and
+  export logic live in one component, `src/components/Dashboard.jsx`. This
+  is an intentional choice (not an oversight) to keep the entire
+  extraction pipeline visible and easy to reason about in one place,
+  rather than spread across many small hooks/files.
+- **Client-side first, server as a thin persistence layer.** PDFs never
+  leave the browser except as raw extracted *text* sent to the optional
+  AI-fallback endpoint. The Express backend does not parse PDFs; it only
+  stores/reads/updates rows in Postgres.
+- **Regex/heuristics first, AI as a fallback, not the primary engine.**
+  The extraction pipeline tries several tiers of pattern matching
+  (exact label match → contextual window scan → AI fallback) before
+  giving up and marking a field "Not Found". This keeps the tool usable
+  and free to run with zero API cost in the common case.
+- **Config-driven verification rules.** All thresholds, valid-ministry
+  lists, date cutoffs, currency formatting, and page-classification
+  signal lists live in `src/config/config.js`, so business rules can be
+  tuned without touching component code.
+- **Graceful degradation.** If the Postgres API is unreachable, the app
+  falls back to `localStorage` so the user doesn't lose in-progress work.
+
+---
+
+## 4. Architecture
+
+```
+┌─────────────────────────────┐        ┌───────────────────────────┐
+│         Browser (React)      │        │        Backend (Node)      │
+│                              │        │                            │
+│  Login.jsx  (local-only auth)│        │  Express API (server.js)   │
+│  Navbar.jsx                  │        │    GET    /api/bids        │
+│  Dashboard.jsx                │        │    POST   /api/bids/bulk   │
+│   ├─ pdfjs-dist: text extract │──JSON─▶│    PUT    /api/bids/:id    │
+│   ├─ regex field extraction   │        │    DELETE /api/bids/:id    │
+│   ├─ optional AI fallback ────┼──text─▶│    DELETE /api/bids        │
+│   │   call (per page)         │        │    POST /api/extract-fallback
+│   ├─ verification rules       │        │      (calls Gemini API)   │
+│   │   (config.js)             │        │                            │
+│   ├─ editable results table   │        │  db.js → PostgreSQL pool  │
+│   └─ XLSX export (client-side)│        │                            │
+└─────────────────────────────┘        └──────────────┬─────────────┘
+                                                        ▼
+                                                 PostgreSQL
+                                            (extracted_bids table)
+```
+
+### Extraction pipeline (per uploaded PDF)
+
+1. **Read file** → `pdfjs-dist` loads the PDF and extracts raw text per
+   page (`page.getTextContent()`), joined into one string per page.
+2. **Document-type branch:**
+   - If the combined text looks like an IOCL/Haldia-style Work Order
+     (`"INDIAN OIL"`, `"Haldia Refinery"`, or `"Work Order"` without
+     `"GEMC"`), a dedicated single-record extraction path runs.
+   - Otherwise, a generic **multi-contract scanner** walks page-by-page:
+     any page matching a "new contract" signal (`Contract No`, `GEMC`,
+     `Work Order No`, `PO No`, etc.) starts a new record; subsequent
+     pages fill in whatever fields are still `"Not Found"` on the current
+     record.
+3. **Per-field regex tiers** (WO Number, WO Value, Date, Ministry each
+   have their own ordered list of patterns, from strict/labelled matches
+   down to a "search near a known anchor phrase" fallback).
+4. **AI fallback**: if WO Number or WO Value is still missing after the
+   regex tiers, the page text is sent to `POST /api/extract-fallback`,
+   which prompts Gemini to return the four fields as JSON. Only fields
+   still missing are filled in from the AI response.
+5. **Formatting & de-duplication**: values are passed through Indian
+   currency/date formatters, then records are de-duplicated by
+   `(WO Number, page index)`, keeping whichever duplicate has the most
+   non-"Not Found" fields populated.
+6. **Persistence**: extracted records are buffered and flushed to
+   Postgres in chunks of up to 100 rows (`POST /api/bids/bulk`), with a
+   `localStorage` mirror kept in sync.
+
+### Verification rules (all in `src/config/config.js`)
+
+- **Date cutoff check** — "Yes" if the extracted date parses successfully
+  and falls on/after `DATE_VERIFICATION_CUTOFF`.
+- **Ministry/refinery check** — exact match against `VALID_MINISTRIES`,
+  then substring/keyword match against `VALID_MINISTRY_KEYWORDS`.
+- **R1/R2/R3 rule check** — per vendor (grouped by folder name at bulk
+  import time), counts how many of that vendor's WO Values exceed each of
+  three thresholds; a vendor passes if it meets any one rule's
+  `(threshold, min-count)` pair.
+
+---
+
+## 5. Project Structure
 
 ```
 .
-├── docker-compose.yml          # Container orchestration for all microservices
-├── Dockerfile                  # Build file for FastAPI + Dashboard application
-├── requirements.txt            # Python dependencies
-├── init.sql                    # Database initialization and schema creation
-├── config/
-│   ├── config.py               # Centralized Python/Backend configuration file
-│   └── config.js               # Centralized Frontend configuration file
 ├── src/
-│   ├── main.py                 # FastAPI backend entrypoint & task queue handler
-│   ├── pipeline/
-│   │   ├── router.py           # Page classification and boilerplate filtering
-│   │   ├── layout_parser.py    # Docling integration service
-│   │   ├── extractor.py        # Instructor + Ollama extraction pipeline
-│   │   └── validator.py        # Business logic validation engine (R1/R2/R3, Ministry, Cutoff)
-│   ├── schemas/
-│   │   └── contract_schema.py  # Pydantic data models for 11-column extraction
-│   └── database/
-│       └── connection.py       # PostgreSQL ORM and query interfaces
-└── app/
-    └── Dashboard.jsx           # Interactive 11-column verification & editing UI
+│   ├── components/
+│   │   ├── Dashboard.jsx    # Everything: upload, extraction, table, export
+│   │   ├── Login.jsx        # Local-storage-backed login/register form
+│   │   └── Navbar.jsx       # Top bar (user name, role badge, logout)
+│   ├── config/
+│   │   └── config.js        # All business-rule thresholds & lists
+│   ├── App.jsx               # Top-level auth state + routing between Login/Dashboard
+│   ├── main.jsx
+│   └── index.css
+├── backend/
+│   ├── server.js             # Express API (CRUD + Gemini fallback proxy)
+│   ├── db.js                  # pg Pool, reads DB_* from backend/.env
+│   └── package.json
+├── database/
+│   └── schema.sql             # extracted_bids table DDL
+├── vite.config.js
+└── package.json
 ```
 
 ---
 
-## Centralized Parameter Configuration
+## 6. Running the Project
 
-All system parameters—including LLM models, layout engines, date verification rules, currency formatting, valid ministry keywords, and Rule Check thresholds—are managed inside a dedicated configuration file.
+### Prerequisites
 
-### Backend / System Configuration (`config/config.py`)
+- Node.js 18+ and npm
+- PostgreSQL running locally (or reachable) — optional; the app works in
+  a degraded, localStorage-only mode without it
+- A Gemini API key — optional; only needed for the AI-fallback extraction
+  path
 
-```python
-from datetime import date
-from pydantic_settings import BaseSettings
-
-class SystemConfig(BaseSettings):
-    # --- System & Microservice Endpoints ---
-    DB_URI: str = "postgresql://admin:SecureLocalPassword123@postgres_db:5432/contract_db"
-    DOCLING_URL: str = "http://docling_service:5001"
-    OLLAMA_URL: str = "http://ollama_engine:11434"
-
-    # --- LLM & Model Settings ---
-    PRIMARY_TEXT_MODEL: str = "qwen2.5:7b-instruct-q4_K_M"
-    FALLBACK_VISION_MODEL: str = "qwen2.5-vl:7b-instruct-q4_K_M"
-    LLM_TEMPERATURE: float = 0.0
-    CONFIDENCE_THRESHOLD: float = 0.85
-
-    # --- Date Verification Parameters ---
-    # Work Orders on or after this date pass date verification
-    DATE_VERIFICATION_CUTOFF: date = date(2019, 6, 1)  # 1 Jun 2019
-    DATE_DISPLAY_FORMAT: str = "DD-MM-YYYY"
-
-    # --- Currency Formatting ---
-    CURRENCY_LOCALE: str = "en-IN"
-    CURRENCY_SYMBOL: str = "₹"
-
-    # --- Ministry / Department Keywords ---
-    # Case-insensitive matching list for Refinery/Petrochemical verification
-    VALID_MINISTRIES: list[str] = [
-        'refinery', 'refineries', 'petroleum', 'petrochemical', 'petrochemicals',
-        'iocl', 'bpcl', 'hpcl', 'mrpl', 'cpcl', 'nrl', 'borl', 'ongc', 'oil india',
-        'indian oil', 'bharat petroleum', 'hindustan petroleum', 'mangalore refinery',
-        'chennai petroleum', 'numaligarh', 'oil corporation', 'oil', 'natural gas'
-    ]
-
-    # --- Similar Works Rule Checks (R1, R2, R3 Thresholds) ---
-    # R1: At least R1_MIN_COUNT tenders each > R1_THRESHOLD
-    RULE_CHECK_R1_MIN_COUNT: int = 3
-    RULE_CHECK_R1_THRESHOLD: float = 422000.0  # 4.22 Lakhs INR
-
-    # R2: At least R2_MIN_COUNT tenders each > R2_THRESHOLD
-    RULE_CHECK_R2_MIN_COUNT: int = 2
-    RULE_CHECK_R2_THRESHOLD: float = 562000.0  # 5.62 Lakhs INR
-
-    # R3: At least R3_MIN_COUNT tenders each > R3_THRESHOLD
-    RULE_CHECK_R3_MIN_COUNT: int = 1
-    RULE_CHECK_R3_THRESHOLD: float = 720000.0  # 7.20 Lakhs INR
-
-config = SystemConfig()
-```
-
-### Frontend Dashboard Configuration (`config/config.js`)
-
-```javascript
-// Centralized Frontend Configuration
-export const DATE_VERIFICATION_CUTOFF = new Date(2019, 5, 1); // 1 Jun 2019
-
-export const VALID_MINISTRIES = [
-  'refinery', 'refineries', 'petroleum', 'petrochemical', 'petrochemicals',
-  'iocl', 'bpcl', 'hpcl', 'mrpl', 'cpcl', 'nrl', 'borl', 'ongc', 'oil india',
-  'indian oil', 'bharat petroleum', 'hindustan petroleum', 'mangalore refinery',
-  'chennai petroleum', 'numaligarh', 'oil corporation', 'oil', 'natural gas'
-];
-
-export const CURRENCY_LOCALE = 'en-IN';
-export const CURRENCY_SYMBOL = '₹';
-export const DATE_DISPLAY_FORMAT = 'DD-MM-YYYY';
-
-// Rule Check Eligibility Parameters
-export const RULE_CHECK_R1_MIN_COUNT = 3;
-export const RULE_CHECK_R1_THRESHOLD = 422000;
-
-export const RULE_CHECK_R2_MIN_COUNT = 2;
-export const RULE_CHECK_R2_THRESHOLD = 562000;
-
-export const RULE_CHECK_R3_MIN_COUNT = 1;
-export const RULE_CHECK_R3_THRESHOLD = 720000;
-```
-
----
-
-## Standardized 11-Column Verification Table Structure
-
-The pipeline extracts data directly into the exact 11-column verification table required by procurement workflows:
-
-| # | Column Name | Source Field | Description & Logic |
-| :-: | :--- | :--- | :--- |
-| **1** | **S.No** | `serial_no` | Sequential index auto-computed per vendor group or record. |
-| **2** | **WO Number** | `wo_number` | Work Order / GeM Contract Number with dynamic PDF page trigger link. |
-| **3** | **WO Value** | `wo_value` | Formatted value (`₹ X,XX,XXX`). Highlighted in red if `< R1 Threshold`. |
-| **4** | **Date** | `date` | Extracted contract issue date (`DD-MM-YYYY`). |
-| **5** | **Whether WO Date During Cutoff** | `date_verified` | Auto-evaluates **Yes/No** based on `DATE_VERIFICATION_CUTOFF`. |
-| **6** | **Ministry / Division** | `ministry` | Extracted ministry, PSU, or organization unit name. |
-| **7** | **WO for Petroleum/Petrochemical Refinery** | `ministry_verified` | Auto-evaluates **Yes/No** matching against `VALID_MINISTRIES`. |
-| **8** | **Rule Check (R1, R2, R3)** | `rule_check` | Visual eligibility indicators for R1, R2, and R3 thresholds. |
-| **9** | **Completion Certificate** | `completion_certificate` | Editable status (**Yes/No**). |
-| **10**| **Recommendation** | `recommendation` | Editable status (**Yes/No**). |
-| **11**| **Actions** | N/A | Row editing and row deletion controls. |
-
----
-
-## Data Schema & Extraction Models
-
-### Pydantic Data Model (`src/schemas/contract_schema.py`)
-
-```python
-from pydantic import BaseModel, Field
-from typing import Optional
-
-class ExtractedWorkOrderSchema(BaseModel):
-    wo_number: str = Field(description="Unique Work Order, Purchase Order, or GeM Contract Number")
-    wo_value: float = Field(description="Total monetary value of the work order in INR")
-    date: str = Field(description="Date of issuance in YYYY-MM-DD or DD-MM-YYYY format")
-    ministry: str = Field(description="Ministry, Department, PSU, or Organization issuing the contract")
-    completion_certificate: Optional[str] = Field(default="No", description="Yes or No indicator")
-    recommendation: Optional[str] = Field(default="No", description="Yes or No indicator")
-```
-
-### Business Rule Validator (`src/pipeline/validator.py`)
-
-```python
-from config.config import config
-from datetime import datetime
-
-def evaluate_date_cutoff(date_str: str) -> str:
-    """Evaluates whether work order date falls on or after DATE_VERIFICATION_CUTOFF."""
-    try:
-        parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        return "Yes" if parsed_date >= config.DATE_VERIFICATION_CUTOFF else "No"
-    except Exception:
-        return "No"
-
-def evaluate_ministry(ministry_str: str) -> str:
-    """Evaluates whether ministry matches valid refinery/petrochemical keywords."""
-    if not ministry_str or ministry_str == "Not Found":
-        return "No"
-    normalized = ministry_str.lower().strip()
-    for valid_item in config.VALID_MINISTRIES:
-        if valid_item in normalized:
-            return "Yes"
-    return "No"
-
-def evaluate_rule_checks(wo_values: list[float]) -> dict:
-    """Evaluates R1, R2, and R3 eligibility based on configured minimum counts and thresholds."""
-    r1_pass = sum(1 for v in wo_values if v >= config.RULE_CHECK_R1_THRESHOLD) >= config.RULE_CHECK_R1_MIN_COUNT
-    r2_pass = sum(1 for v in wo_values if v >= config.RULE_CHECK_R2_THRESHOLD) >= config.RULE_CHECK_R2_MIN_COUNT
-    r3_pass = sum(1 for v in wo_values if v >= config.RULE_CHECK_R3_THRESHOLD) >= config.RULE_CHECK_R3_MIN_COUNT
-    return {"R1": r1_pass, "R2": r2_pass, "R3": r3_pass}
-```
-
----
-
-## Infrastructure Setup & Deployment
-
-### Docker Compose Setup (`docker-compose.yml`)
-
-```yaml
-version: '3.8'
-
-services:
-  postgres_db:
-    image: pgvector/pgvector:pg16
-    container_name: idp_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: contract_db
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: SecureLocalPassword123
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  docling_service:
-    image: quay.io/docling-project/docling-serve:latest
-    container_name: idp_docling
-    restart: unless-stopped
-    ports:
-      - "5001:5001"
-
-  ollama_engine:
-    image: ollama/ollama:latest
-    container_name: idp_ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_models:/root/.ollama
-
-  app_backend:
-    build: .
-    container_name: idp_app
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-      - "3000:3000"
-    environment:
-      - DB_URI=postgresql://admin:SecureLocalPassword123@postgres_db:5432/contract_db
-      - DOCLING_URL=http://docling_service:5001
-      - OLLAMA_URL=http://ollama_engine:11434
-    depends_on:
-      - postgres_db
-      - docling_service
-      - ollama_engine
-
-volumes:
-  postgres_data:
-  ollama_models:
-```
-
-### Execution Commands
+### 6.1 Database setup (optional but recommended)
 
 ```bash
-# 1. Start services
-docker compose up -d
-
-# 2. Pull local model weights
-docker exec -it idp_ollama ollama pull qwen2.5:7b-instruct-q4_K_M
-docker exec -it idp_ollama ollama pull qwen2.5-vl:7b-instruct-q4_K_M
+psql -U postgres -f database/schema.sql
 ```
+
+This creates `gem_portal_db` and the `extracted_bids` table.
+
+### 6.2 Backend
+
+```bash
+cd backend
+npm install
+```
+
+Create `backend/.env`:
+
+```env
+DB_USER=postgres
+DB_HOST=localhost
+DB_NAME=gem_portal_db
+DB_PASSWORD=your_password
+DB_PORT=5432
+
+# Optional — enables the AI extraction fallback endpoint
+GEMINI_API_KEY=your_gemini_api_key
+```
+
+```bash
+npm start
+```
+
+The API listens on `http://localhost:5000` by default (`PORT` env var to
+override — **note:** the frontend does not currently read this from
+config; see Analysis §2).
+
+### 6.3 Frontend
+
+```bash
+npm install
+npm run dev
+```
+
+Vite will print a local dev URL (typically `http://localhost:5173`).
+Open it, log in (see §6.4), and upload PDFs.
+
+To build for production:
+
+```bash
+npm run build
+npm run preview   # serve the built dist/ locally
+```
+
+### 6.4 Logging In
+
+There is no real backend authentication. On first load:
+
+- **Admin:** username `admin`, password `admin123` (hardcoded).
+- **Any other user:** click "Need an account? Register Here" — credentials
+  are stored in the browser's `localStorage` under `portal_users`, in
+  plain text.
+
+This is a UI gate only, not a security boundary — see Analysis §1.
 
 ---
 
-## Performance & Comparison
+## 7. Analysis & Caveats
 
-| Metric | Legacy OCR (`pdf.js` + Tesseract) | New FOSS Smart Hybrid Pipeline |
-| :--- | :--- | :--- |
-| **Table Structure Retention** | Flattened text / lost column layout | Preserved via Docling Markdown grids |
-| **11-Column Automated Verification**| Manual calculation required | Auto-calculated (Date, Ministry, R1/R2/R3) |
-| **Configuration Management** | Scattered hardcoded rules | Single config file (`config.py` / `config.js`) |
-| **Overall Extraction Accuracy** | ~60% – 70% | **92% – 96%** |
-| **Operating Cost** | **$0.00** | **$0.00** |
+This section is an honest technical assessment, not a feature list.
+
+1. **Authentication is not real security.** `Login.jsx`/`App.jsx` store
+   usernames and passwords in plaintext in browser `localStorage`, and
+   the admin password (`admin123`) is hardcoded in client-side source
+   that ships to every browser. Anyone with dev tools access can read
+   credentials or simply skip login by manipulating component state. This
+   is fine for an internal single-user tool or a demo, but it must not be
+   treated as access control for sensitive procurement data.
+
+2. **Hardcoded backend URLs, no environment config.** The frontend calls
+   `http://localhost:5000/...` directly in two places in `Dashboard.jsx`
+   (`API_BASE_URL` and the AI-fallback fetch). There's no `.env`/Vite env
+   variable for this, so a production deployment (frontend and backend on
+   different hosts) requires editing and rebuilding the frontend rather
+   than changing configuration.
+
+3. **`config.js`'s "Smart Page Router" is defined but not wired in.**
+   `PAGE_FILTER_CONTRACT_SIGNALS` and `PAGE_FILTER_BOILERPLATE_SIGNALS`
+   are exported from `config.js` and imported into `Dashboard.jsx`, and
+   the config file's comments describe a page-classification step that
+   skips boilerplate/legal pages before extraction — but no code in
+   `Dashboard.jsx` actually calls a `classifyPage`-style function or
+   filters pages using these lists before the extraction loop runs. Right
+   now every page is fed into the extraction loop regardless of these
+   signal lists. Either this is intentional in-progress work, or it's
+   dead config — worth clarifying, since the previous project memory
+   describes this as an implemented feature.
+
+4. **No `normalizeDoubledText` handling in this codebase.** Bilingual
+   PDF character-doubling normalization (mentioned in earlier project
+   notes) isn't present in `Dashboard.jsx` here. If this repository is
+   meant to be the same project as that earlier work, that logic appears
+   to be missing from this copy/branch.
+
+5. **Regex extraction is inherently fragile.** The WO Value/date/ministry
+   extraction relies on layered regex heuristics tuned to specific label
+   phrasings seen in sample PDFs. Any GeM/PSU template variation not
+   covered by the existing patterns silently falls through to "Not
+   Found" (or the optional AI fallback, if configured). There's no
+   automated test suite validating extraction accuracy against a corpus
+   of sample PDFs.
+
+6. **AI fallback cost/availability is a single point of failure per
+   page.** Every page where WO Number or WO Value isn't found triggers a
+   separate Gemini API call from the backend. For large multi-page PDFs
+   with many unmatched pages, this can mean many sequential API calls per
+   document, with no caching, batching, or rate-limit handling.
+
+7. **Previous README described a different system entirely.** The
+   original `README.md`/`README_NEW.md` in this repo describe a Python/
+   Docling/Ollama/Qwen2.5-VL/FastAPI/Docker Compose/pgvector pipeline.
+   None of that exists anywhere in this repository — there's no Python
+   code, no Docker files, no Ollama/Qwen references, and no vector
+   database. That README appears to describe an aspirational or different
+   version of this project rather than the code that's actually here. I
+   verified this by grepping the codebase and confirming `npm install`
+   and `npm run build` succeed against the *actual* stack (Vite/React/
+   pdfjs-dist/Tailwind), which has nothing to do with that description.
+   Worth flagging to whoever maintains this repo so the docs and code
+   don't drift further apart.
+
+8. **Package versions were validated.** I ran `npm install` and
+   `npm run build` in a clean environment against this `package.json` —
+   both succeeded (React 19.2.x, Vite 8.x, Tailwind 4.x, etc. all
+   resolved and built cleanly), so the dependency versions listed are
+   real and installable, not placeholders.
