@@ -1,15 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  UploadCloud, 
-  FileText, 
-  ExternalLink, 
-  RefreshCw, 
-  Download, 
-  FolderOpen, 
-  Building2, 
-  ListChecks, 
-  Pencil, 
-  Trash2 
+import {
+  UploadCloud,
+  FileText,
+  ExternalLink,
+  RefreshCw,
+  Download,
+  Layers,
+  FolderOpen,
+  Building2,
+  ListChecks,
+  Pencil,
+  Trash2,
+  X,
+  Save,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
@@ -17,24 +20,52 @@ import * as XLSX from 'xlsx';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
-import { 
-  DATE_VERIFICATION_CUTOFF, 
+import {
+  DATE_VERIFICATION_CUTOFF,
   VALID_MINISTRIES,
   VALID_MINISTRY_KEYWORDS,
-  CURRENCY_LOCALE, 
-  CURRENCY_SYMBOL, 
-  DATE_DISPLAY_FORMAT, 
-  RULE_CHECK_R1_MIN_COUNT, 
-  RULE_CHECK_R1_THRESHOLD, 
-  RULE_CHECK_R2_MIN_COUNT, 
-  RULE_CHECK_R2_THRESHOLD, 
-  RULE_CHECK_R3_MIN_COUNT, 
+  CURRENCY_LOCALE,
+  CURRENCY_SYMBOL,
+  DATE_DISPLAY_FORMAT,
+  RULE_CHECK_R1_MIN_COUNT,
+  RULE_CHECK_R1_THRESHOLD,
+  RULE_CHECK_R2_MIN_COUNT,
+  RULE_CHECK_R2_THRESHOLD,
+  RULE_CHECK_R3_MIN_COUNT,
   RULE_CHECK_R3_THRESHOLD,
 } from '../config/config';
 
 const API_BASE_URL = 'http://localhost:5000/api/bids';
 
-// 🧠 VERIFICATION HELPERS
+// ========== CLIENT LOGGER ==========
+async function clientLogger(level, message, data = null) {
+  try {
+    await fetch('http://localhost:5000/api/log/client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level, message, data }),
+    });
+  } catch (err) {
+    // Silently fail; we don't want logging to break the app
+  }
+}
+
+// ========== EXTRACTED TEXT LOGGER (per page) ==========
+async function logExtractedText(fileName, pages) {
+  try {
+    await fetch('http://localhost:5000/api/log/extracted-text', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName, pages }),
+    });
+  } catch (err) {
+    // Silent fail
+  }
+}
+
+// ========== REST OF HELPERS ==========
+const naturalSort = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
 const MONTH_ABBR = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
 
 const parseExtractedDate = (dateStr) => {
@@ -62,27 +93,24 @@ const parseExtractedDate = (dateStr) => {
 
 const verifyDateAfterCutoff = (dateStr) => {
   const parsed = parseExtractedDate(dateStr);
-  if (!parsed) return "No";
-  return parsed >= DATE_VERIFICATION_CUTOFF ? "Yes" : "No";
+  if (!parsed) return 'No';
+  return parsed >= DATE_VERIFICATION_CUTOFF ? 'Yes' : 'No';
 };
 
 const verifyMinistryDepartment = (ministryStr) => {
-  if (!ministryStr || ministryStr === 'Not Found') return "No";
+  if (!ministryStr || ministryStr === 'Not Found') return 'No';
   const normalized = ministryStr.trim().toLowerCase();
 
-  // Tier 1: exact match
-  if (VALID_MINISTRIES.some((m) => m.trim().toLowerCase() === normalized)) return "Yes";
+  if (VALID_MINISTRIES.some((m) => m.trim().toLowerCase() === normalized)) return 'Yes';
+  if (VALID_MINISTRY_KEYWORDS.some((kw) => normalized.includes(kw.toLowerCase()))) return 'Yes';
 
-  // Tier 2: keyword/substring match
-  if (VALID_MINISTRY_KEYWORDS.some((kw) => normalized.includes(kw.toLowerCase()))) return "Yes";
-
-  return "No";
+  return 'No';
 };
 
 const formatIndianCurrency = (valueStr) => {
   if (!valueStr || valueStr === 'Not Found') return valueStr;
-  
-  const isIOCLFormat = valueStr.includes("including GST") || valueStr.startsWith("Rs.");
+
+  const isIOCLFormat = valueStr.includes('including GST') || valueStr.startsWith('Rs.');
   const cleaned = valueStr.toString().replace(/[^0-9.]/g, '');
   if (!cleaned) return valueStr;
 
@@ -124,12 +152,12 @@ const evaluateRuleCheck = (values) => {
   const meetsR1 = values.filter((v) => v > RULE_CHECK_R1_THRESHOLD).length >= RULE_CHECK_R1_MIN_COUNT;
   const meetsR2 = values.filter((v) => v > RULE_CHECK_R2_THRESHOLD).length >= RULE_CHECK_R2_MIN_COUNT;
   const meetsR3 = values.filter((v) => v > RULE_CHECK_R3_THRESHOLD).length >= RULE_CHECK_R3_MIN_COUNT;
-  
+
   return {
     R1: meetsR1,
     R2: meetsR2,
     R3: meetsR3,
-    satisfied: meetsR1 || meetsR2 || meetsR3
+    satisfied: meetsR1 || meetsR2 || meetsR3,
   };
 };
 
@@ -152,10 +180,10 @@ const computeRuleCheckByVendor = (data) => {
 
 const computeVendorSerialNumbers = (data) => {
   const serials = [];
-  let currentKey;
+  let currentKey = null;
   let counter = 0;
   data.forEach((row) => {
-    const key = row.vendorFolder || null;
+    const key = row.vendorFolder && row.vendorFolder.trim() !== '' ? row.vendorFolder : 'Uncategorized Vendor';
     if (key !== currentKey) {
       currentKey = key;
       counter = 1;
@@ -170,11 +198,23 @@ const computeVendorSerialNumbers = (data) => {
 const groupRowsByVendor = (data) => {
   const groups = new Map();
   data.forEach((row) => {
-    const key = row.vendorFolder || null;
+    const key = row.vendorFolder && row.vendorFolder.trim() !== '' ? row.vendorFolder : 'Uncategorized Vendor';
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row);
+    groups.get(key).push({ ...row, vendorFolder: key });
   });
   return Array.from(groups.values()).flat();
+};
+
+const sortExtractedData = (data) => {
+  return [...data].sort((a, b) => {
+    const vendorA = (a.vendorFolder || '').toLowerCase();
+    const vendorB = (b.vendorFolder || '').toLowerCase();
+    if (vendorA === '' && vendorB !== '') return 1;
+    if (vendorA !== '' && vendorB === '') return -1;
+    if (vendorA < vendorB) return -1;
+    if (vendorA > vendorB) return 1;
+    return (a.createdAt || 0) - (b.createdAt || 0);
+  });
 };
 
 function EditableField({
@@ -186,7 +226,7 @@ function EditableField({
   onCancel,
   displayContent,
   type = 'text',
-  options = []
+  options = [],
 }) {
   const inputRef = useRef(null);
 
@@ -198,8 +238,13 @@ function EditableField({
   }, [isEditing]);
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); onSave(); }
-    else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      onSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
+    }
   };
 
   return (
@@ -227,7 +272,9 @@ function EditableField({
             className="text-xs border border-blue-400 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             {options.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
             ))}
           </select>
         ) : (
@@ -249,12 +296,65 @@ function EditableField({
   );
 }
 
+// ✨ SKELETON ROW — clean and contained
+const SkeletonRow = () => (
+  <tr className="animate-pulse">
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-6"></div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-20"></div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-16"></div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-12"></div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-10 mx-auto"></div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-24"></div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-10 mx-auto"></div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="flex items-center justify-center space-x-1">
+        <div className="h-4 w-6 bg-gray-200 rounded"></div>
+        <div className="h-4 w-6 bg-gray-200 rounded"></div>
+        <div className="h-4 w-6 bg-gray-200 rounded"></div>
+      </div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-10 mx-auto"></div>
+    </td>
+    <td className="py-3 px-3">
+      <div className="h-4 bg-gray-200 rounded w-10 mx-auto"></div>
+    </td>
+    <td className="py-3 px-2">
+      <div className="h-4 bg-gray-200 rounded w-6 mx-auto"></div>
+    </td>
+  </tr>
+);
+
 export default function Dashboard() {
+  const [isProcessing, setIsProcessing] = useState(false);
   const [extractedData, setExtractedData] = useState([]);
+  const [progress, setProgress] = useState({ current: 0, total: 1, file: '', currentFileIndex: 0, totalFiles: 0 });
 
   const [editingCell, setEditingCell] = useState(null);
   const [editValue, setEditValue] = useState('');
   const [deleteConfirmRowId, setDeleteConfirmRowId] = useState(null);
+
+  const [isTableLoading, setIsTableLoading] = useState(true);
+
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [modalRow, setModalRow] = useState(null);
+  const [modalPdfUrl, setModalPdfUrl] = useState('');
+  const [modalEditData, setModalEditData] = useState({});
+  const [pendingModalRow, setPendingModalRow] = useState(null);
 
   const fileInputRef = useRef(null);
   const activeTargetPageRef = useRef(null);
@@ -271,7 +371,7 @@ export default function Dashboard() {
     currentFileIndex: 0,
     totalFiles: 0,
     currentFileName: '',
-    currentVendor: ''
+    currentVendor: '',
   });
 
   useEffect(() => {
@@ -279,27 +379,36 @@ export default function Dashboard() {
   }, []);
 
   const fetchFromPostgres = async () => {
+    setIsTableLoading(true);
     try {
       const res = await fetch(API_BASE_URL);
-      if (!res.ok) throw new Error("API request failed");
+      if (!res.ok) throw new Error('API request failed');
       const data = await res.json();
-      setExtractedData(data);
-      localStorage.setItem('gem_portal_history', JSON.stringify(data));
+      const sorted = sortExtractedData(data);
+      setExtractedData(sorted);
+      localStorage.setItem('gem_portal_history', JSON.stringify(sorted));
+      clientLogger('info', 'Fetched data from PostgreSQL', { count: data.length });
     } catch (err) {
-      console.warn("PostgreSQL server offline, falling back to LocalStorage history:", err);
+      console.warn('PostgreSQL server offline, falling back to LocalStorage history:', err);
+      clientLogger('warn', 'PostgreSQL fetch failed, using localStorage', { error: err.message });
       const savedData = localStorage.getItem('gem_portal_history');
       if (savedData) {
-        try { setExtractedData(JSON.parse(savedData)); } catch (e) {}
+        try {
+          const parsed = JSON.parse(savedData);
+          setExtractedData(sortExtractedData(parsed));
+        } catch (e) {}
       }
+    } finally {
+      setIsTableLoading(false);
     }
   };
 
   const saveToLocalStorage = (newData) => {
-    setExtractedData(newData);
-    localStorage.setItem('gem_portal_history', JSON.stringify(newData));
+    const sorted = sortExtractedData(newData);
+    setExtractedData(sorted);
+    localStorage.setItem('gem_portal_history', JSON.stringify(sorted));
   };
 
-  // ⚡ Chunked saver to handle thousands of records cleanly without payload limits
   const saveToPostgresInChunks = async (records, chunkSize = 100) => {
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize);
@@ -307,19 +416,19 @@ export default function Dashboard() {
         await fetch(`${API_BASE_URL}/bulk`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(chunk)
+          body: JSON.stringify(chunk),
         });
       } catch (err) {
-        console.error("Failed to push chunk to DB, saving locally:", err);
+        console.error('Failed to push chunk to DB, saving locally:', err);
+        clientLogger('error', 'DB bulk save failed', { error: err.message, chunkSize: chunk.length });
       }
     }
-    await fetchFromPostgres();
   };
 
   const exportToExcel = () => {
     if (!extractedData.length) return;
 
-    const exportableData = extractedData.filter((row) => row.woNumber && row.woNumber !== "Not Found");
+    const exportableData = extractedData.filter((row) => row.woNumber && row.woNumber !== 'Not Found');
     if (!exportableData.length) return;
 
     const groupedData = groupRowsByVendor(exportableData);
@@ -329,11 +438,12 @@ export default function Dashboard() {
 
     const sheetData = groupedData.map((row, index) => {
       const vendorName = row.vendorFolder || '';
-      const previousVendorName = index > 0 ? (groupedData[index - 1].vendorFolder || '') : null;
+      const previousVendorName = index > 0 ? groupedData[index - 1].vendorFolder || '' : null;
       const displayVendorName = vendorName && vendorName !== previousVendorName ? vendorName : '';
 
       const dateVerified = row.dateVerified !== undefined ? row.dateVerified : verifyDateAfterCutoff(row.date);
-      const ministryVerified = row.ministryVerified !== undefined ? row.ministryVerified : verifyMinistryDepartment(row.ministry);
+      const ministryVerified =
+        row.ministryVerified !== undefined ? row.ministryVerified : verifyMinistryDepartment(row.ministry);
 
       let ruleCheckLabel = 'R1(No) R2(No) R3(No)';
       if (row.vendorFolder) {
@@ -350,24 +460,25 @@ export default function Dashboard() {
       }
 
       return {
-        "S.No": serialNumbers[index],
+        'S.No': serialNumbers[index],
         "BIDDER'S NAME": displayVendorName,
-        "WO NUMBER": row.woNumber,
-        "WO VALUE": row.woValue,
-        "DATE": row.date,
+        'WO NUMBER': row.woNumber,
+        'WO VALUE': row.woValue,
+        DATE: row.date,
         [dateVerificationHeading]: dateVerified,
-        "MINISTRY / DIVISION": row.ministry,
-        "WO FOR PETROLEUM/PETROCHEMICAL REFINERY": ministryVerified,
-        "RULE CHECK (R1,R2,R3)": ruleCheckLabel,
-        "COMPLETION CERTIFICATE": row.completionCertificate || "No",
-        "RECOMMENDATION": row.recommendation || "No"
+        'MINISTRY / DIVISION': row.ministry,
+        'WO FOR PETROLEUM/PETROCHEMICAL REFINERY': ministryVerified,
+        'RULE CHECK (R1,R2,R3)': ruleCheckLabel,
+        'COMPLETION CERTIFICATE': row.completionCertificate || 'No',
+        RECOMMENDATION: row.recommendation || 'No',
       };
     });
 
     const worksheet = XLSX.utils.json_to_sheet(sheetData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "GeM Extraction");
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'GeM Extraction');
     XLSX.writeFile(workbook, `GeM_Master_Report_${Date.now()}.xlsx`);
+    clientLogger('info', 'Exported to Excel');
   };
 
   const startEditingCell = (row, field) => {
@@ -377,7 +488,7 @@ export default function Dashboard() {
     } else if (field === 'ministryVerified') {
       initialValue = row.ministryVerified !== undefined ? row.ministryVerified : verifyMinistryDepartment(row.ministry);
     } else if (field === 'completionCertificate' || field === 'recommendation') {
-      initialValue = row[field] || "No";
+      initialValue = row[field] || 'No';
     } else {
       initialValue = row[field];
     }
@@ -398,10 +509,12 @@ export default function Dashboard() {
       await fetch(`${API_BASE_URL}/${rowId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ field, value: editValue })
+        body: JSON.stringify({ field, value: editValue }),
       });
+      clientLogger('info', `Updated cell ${field} for row ${rowId}`);
     } catch (e) {
-      console.warn("Database sync failed, updating UI locally:", e);
+      console.warn('Database sync failed, updating UI locally:', e);
+      clientLogger('warn', `Failed to update cell ${field} in DB`, { error: e.message });
     }
 
     const updated = extractedData.map((r) => (r.id === rowId ? { ...r, [field]: editValue } : r));
@@ -417,62 +530,128 @@ export default function Dashboard() {
     if (!deleteConfirmRowId) return;
     try {
       await fetch(`${API_BASE_URL}/${deleteConfirmRowId}`, { method: 'DELETE' });
+      clientLogger('info', `Deleted row ${deleteConfirmRowId}`);
     } catch (e) {
-      console.warn("Database delete sync failed, updating locally:", e);
+      console.warn('Database delete sync failed, updating locally:', e);
+      clientLogger('warn', `Failed to delete row ${deleteConfirmRowId} in DB`, { error: e.message });
     }
-    
+
     const updated = extractedData.filter((r) => r.id !== deleteConfirmRowId);
     saveToLocalStorage(updated);
     setDeleteConfirmRowId(null);
   };
 
   const clearHistory = async () => {
-    if (window.confirm("Are you sure you want to completely wipe all database and local records?")) { 
+    if (window.confirm('Are you sure you want to completely wipe all database and local records?')) {
       try {
         await fetch(API_BASE_URL, { method: 'DELETE' });
+        // Also clear the extracted text log
+        await fetch('http://localhost:5000/api/log/extracted-text', { method: 'DELETE' });
+        clientLogger('info', 'Cleared all history and extracted text log');
       } catch (e) {
-        console.warn("Database truncate request failed:", e);
+        console.warn('Database truncate request failed:', e);
+        clientLogger('error', 'Failed to clear history', { error: e.message });
       }
       fileBlobsMapRef.current.clear();
       saveToLocalStorage([]);
     }
   };
 
-  const verifyAndOpenPdf = (row) => {
+  // ----- PDF MODAL FUNCTIONS -----
+  const openPdfModal = (row) => {
     const cachedUrl = fileBlobsMapRef.current.get(row.fileName);
     if (cachedUrl) {
-      window.open(`${cachedUrl}#page=${row.pageIndex || 1}`, '_blank', 'noopener,noreferrer');
+      setModalRow(row);
+      setModalEditData({ ...row });
+      const pageParam = row.pageIndex ? `#page=${row.pageIndex}` : '';
+      setModalPdfUrl(cachedUrl + pageParam);
+      setIsPdfModalOpen(true);
     } else {
-      activeTargetPageRef.current = row.pageIndex || 1;
+      setPendingModalRow(row);
       if (fileInputRef.current) fileInputRef.current.click();
     }
   };
 
+  const closePdfModal = () => {
+    setIsPdfModalOpen(false);
+    setModalRow(null);
+    setModalEditData({});
+    setModalPdfUrl('');
+  };
+
+  const handleModalFieldChange = (field, value) => {
+    setModalEditData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const saveModalChanges = async () => {
+    if (!modalRow) return;
+    const rowId = modalRow.id;
+    const updatedFields = modalEditData;
+
+    for (const [field, value] of Object.entries(updatedFields)) {
+      if (value !== modalRow[field]) {
+        try {
+          await fetch(`${API_BASE_URL}/${rowId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field, value }),
+          });
+        } catch (e) {
+          console.warn(`Failed to update ${field} in DB:`, e);
+          clientLogger('warn', `Modal edit failed for ${field}`, { error: e.message });
+        }
+      }
+    }
+
+    const updatedData = extractedData.map((r) => (r.id === rowId ? { ...r, ...updatedFields } : r));
+    saveToLocalStorage(updatedData);
+    closePdfModal();
+    clientLogger('info', `Saved modal changes for row ${rowId}`);
+  };
+
+  const verifyAndOpenPdf = (row) => {
+    openPdfModal(row);
+  };
+
   const handleVerifyFileRedirect = (e) => {
     const file = e.target.files[0];
-    if (!file || !activeTargetPageRef.current) return;
+    if (!file) return;
 
-    const targetPage = activeTargetPageRef.current;
-    const fileBlobUrl = URL.createObjectURL(file);
-    
-    window.open(`${fileBlobUrl}#page=${targetPage}`, '_blank', 'noopener,noreferrer');
-    
+    const blob = new Blob([file], { type: 'application/pdf' });
+    const fileBlobUrl = URL.createObjectURL(blob);
+    fileBlobsMapRef.current.set(file.name, fileBlobUrl);
+
+    if (pendingModalRow) {
+      const row = pendingModalRow;
+      setPendingModalRow(null);
+      setModalRow(row);
+      setModalEditData({ ...row });
+      const pageParam = row.pageIndex ? `#page=${row.pageIndex}` : '';
+      setModalPdfUrl(fileBlobUrl + pageParam);
+      setIsPdfModalOpen(true);
+    } else {
+      const targetPage = activeTargetPageRef.current || 1;
+      window.open(`${fileBlobUrl}#page=${targetPage}`, '_blank', 'noopener,noreferrer');
+    }
+
     e.target.value = null;
     activeTargetPageRef.current = null;
   };
 
-  // 🤖 AI FALLBACK API CALL
+  // ----- END PDF MODAL FUNCTIONS -----
+
   const callAiFallback = async (pageText) => {
     try {
       const res = await fetch('http://localhost:5000/api/extract-fallback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: pageText })
+        body: JSON.stringify({ text: pageText }),
       });
       if (!res.ok) return null;
       return await res.json();
     } catch (e) {
-      console.error("AI Fallback failed to respond:", e);
+      console.error('AI Fallback failed to respond:', e);
+      clientLogger('error', 'AI Fallback failed', { error: e.message });
       return null;
     }
   };
@@ -480,114 +659,145 @@ export default function Dashboard() {
   const parsePdfFileContextAsync = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      
-      reader.onerror = () => reject(new Error("FileReader runtime stream execution failure."));
+
+      reader.onerror = () => reject(new Error('FileReader runtime failure.'));
       reader.onload = async (event) => {
+        let pdf = null;
+        let loadingTask = null;
+
         try {
           const typedarray = new Uint8Array(event.target.result);
-          const loadingTask = pdfjsLib.getDocument({ data: typedarray });
-          const pdf = await loadingTask.promise;
-          
+          loadingTask = pdfjsLib.getDocument({ data: typedarray });
+          pdf = await loadingTask.promise;
+
           const totalPages = pdf.numPages;
           const fileBlobUrl = URL.createObjectURL(file);
           fileBlobsMapRef.current.set(file.name, fileBlobUrl);
-          
+
           let filePagesData = [];
-          let globalText = "";
+          let globalText = '';
 
           for (let i = 1; i <= totalPages; i++) {
             const page = await pdf.getPage(i);
             const textLayout = await page.getTextContent();
-            const pageStr = textLayout.items.map(item => item.str).join(' ').replace(/\s+/g, ' ').trim();
-            
+            const pageStr = textLayout.items.map((item) => item.str).join(' ').replace(/\s+/g, ' ').trim();
+
             filePagesData.push({ index: i, text: pageStr });
-            globalText += " " + pageStr;
+            globalText += ' ' + pageStr;
+            page.cleanup();
           }
+
+          // ✅ LOG EXTRACTED TEXT PER PAGE (not concatenated)
+          await logExtractedText(file.name, filePagesData.map(p => ({ pageIndex: p.index, text: p.text })));
 
           let localRecords = [];
 
-          const isIOCLDocument = globalText.includes("INDIAN OIL") || 
-                                 globalText.includes("Haldia Refinery") || 
-                                 (globalText.includes("Work Order") && !globalText.includes("GEMC"));
+          const isIOCLDocument =
+            globalText.includes('INDIAN OIL') ||
+            globalText.includes('Haldia Refinery') ||
+            (globalText.includes('Work Order') && !globalText.includes('GEMC'));
 
           if (isIOCLDocument) {
-            let woNumber = "Not Found", woValue = "Not Found", date = "Not Found", ministry = "INDIAN OIL CORPORATION LIMITED, Haldia Refinery";
-            
-            const woMatch = globalText.match(/(?:Work Order Number|Work Order No|Work Order No\.|WO No|WO Number)[:\s]*([0-9/A-Z\-]+)/i);
+            let woNumber = 'Not Found',
+              woValue = 'Not Found',
+              date = 'Not Found',
+              ministry = 'INDIAN OIL CORPORATION LIMITED, Haldia Refinery';
+
+            const woMatch = globalText.match(
+              /(?:Work Order Number|Work Order No|Work Order No\.|WO No|WO Number)[:\s]*([0-9/A-Z\-]+)/i
+            );
             if (woMatch) woNumber = woMatch[1].trim();
 
-            const valueMatch = globalText.match(/Rs\.\s*([\d,]+(?:\.\d{1,2})?)\s*including GST/i) || 
-                               globalText.match(/Executed Value of the Contract:\s*Rs\.?\s*([\d,]+(?:\.\d{1,2})?)/i) ||
-                               globalText.match(/(?:Rs\.?\s*)([\d,]{5,}(?:\.\d{1,2})?)/i);
-            
+            const valueMatch =
+              globalText.match(/Rs\.\s*([\d,]+(?:\.\d{1,2})?)\s*including GST/i) ||
+              globalText.match(/Executed Value of the Contract:\s*Rs\.?\s*([\d,]+(?:\.\d{1,2})?)/i) ||
+              globalText.match(/(?:Rs\.?\s*)([\d,]{5,}(?:\.\d{1,2})?)/i);
+
             if (valueMatch) {
-              woValue = "Rs. " + valueMatch[1].trim() + " including GST";
+              woValue = 'Rs. ' + valueMatch[1].trim() + ' including GST';
             } else {
               const fallbackNumMatch = globalText.match(/[\d]{1,3}(?:,[\d]{2,3})+(?:\.[\d]{2})?/);
               if (fallbackNumMatch) {
-                woValue = "Rs. " + fallbackNumMatch[0].trim() + " including GST";
+                woValue = 'Rs. ' + fallbackNumMatch[0].trim() + ' including GST';
               }
             }
 
-            const dateMatch = globalText.match(/(?:of Commencement|Date of Issue|WO Date)[:\s]*([0-9.]+)/i) || 
-                              globalText.match(/(?:Date|Dated)[:\s]*([0-9.]+)/i) || 
-                              globalText.match(/\d{2}\.\d{2}\.\d{4}/);
+            const dateMatch =
+              globalText.match(/(?:of Commencement|Date of Issue|WO Date)[:\s]*([0-9.]+)/i) ||
+              globalText.match(/(?:Date|Dated)[:\s]*([0-9.]+)/i) ||
+              globalText.match(/\d{2}\.\d{2}\.\d{4}/);
             if (dateMatch) date = dateMatch[0].trim();
 
-            localRecords.push({ id: `rec-${Date.now()}`, woNumber, woValue, date, ministry, fileName: file.name, pageIndex: 1 });
-          } 
-          else {
-            // UNIVERSAL & GeM CONTRACT SCANNER
+            localRecords.push({
+              id: `rec-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+              createdAt: Date.now(),
+              woNumber,
+              woValue,
+              date,
+              ministry,
+              fileName: file.name,
+              pageIndex: 1,
+            });
+          } else {
             let currentRecord = null;
 
             for (let pageObj of filePagesData) {
               const pageStr = pageObj.text;
-
-              // Broadened Contract Boundary Signals so no contract page is skipped
-              const isNewContractStart = /(?:Contract No|अनुबंध क्रमांक|GEMC|Work Order No|Sanction No|Order No|PO No|GEM[\/])/i.test(pageStr);
+              const isNewContractStart =
+                /(?:Contract No|अनुबंध क्रमांक|GEMC|Work Order No|Sanction No|Order No|PO No|GEM[\/])/i.test(pageStr);
 
               if (isNewContractStart || (!currentRecord && localRecords.length === 0)) {
-                if (currentRecord) {
-                  localRecords.push(currentRecord);
-                }
+                if (currentRecord) localRecords.push(currentRecord);
 
                 currentRecord = {
-                  id: `rec-${Date.now()}-${pageObj.index}-${Math.random().toString(36).substr(2, 5)}`,
-                  woNumber: "Not Found",
-                  woValue: "Not Found",
-                  date: "Not Found",
-                  ministry: "Not Found",
+                  id: `rec-${Date.now()}-${pageObj.index}-${Math.random().toString(36).substr(2, 6)}`,
+                  createdAt: Date.now() + pageObj.index,
+                  woNumber: 'Not Found',
+                  woValue: 'Not Found',
+                  date: 'Not Found',
+                  ministry: 'Not Found',
                   fileName: file.name,
-                  pageIndex: pageObj.index
+                  pageIndex: pageObj.index,
                 };
               }
 
               if (currentRecord) {
-                // 1. WO NUMBER EXTRACTION
-                if (currentRecord.woNumber === "Not Found") {
-                  const woMatch = pageStr.match(/GEMC\s*[-–—]?\s*[\w\-]+/i) ||
-                                  pageStr.match(/GEM\s*[\/\-]\s*\d+[\/\-A-Z0-9\-_]+/i) ||
-                                  pageStr.match(/(?:Contract No|Work Order No|Order No|PO No|Sanction No|अनुबंध क्रमांक|GEM[- ]?No|Bid Number)[:\s|]*([A-Z0-9\/\-_]{5,})/i);
-                  
+                if (currentRecord.woNumber === 'Not Found') {
+                  const woMatch =
+                    pageStr.match(/GEMC\s*[-–—]?\s*[\w\-]+/i) ||
+                    pageStr.match(/GEM\s*[\/\-]\s*\d+[\/\-A-Z0-9\-_]+/i) ||
+                    pageStr.match(
+                      /(?:Contract No|Work Order No|Order No|PO No|Sanction No|अनुबंध क्रमांक|GEM[- ]?No|Bid Number)[:\s|]*([A-Z0-9\/\-_]{5,})/i
+                    );
                   if (woMatch) {
                     const extractedWo = woMatch[1] || woMatch[0];
-                    currentRecord.woNumber = extractedWo.replace(/^(?:Contract No|Work Order No|Order No|PO No|Sanction No|अनुबंध क्रमांक|GEM[- ]?No|Bid Number)[:\s|]*/i, '').trim();
+                    currentRecord.woNumber = extractedWo
+                      .replace(
+                        /^(?:Contract No|Work Order No|Order No|PO No|Sanction No|अनुबंध क्रमांक|GEM[- ]?No|Bid Number)[:\s|]*/i,
+                        ''
+                      )
+                      .trim();
                   }
                 }
 
-                // 2. DATE EXTRACTION
-                if (currentRecord.date === "Not Found") {
-                  const dateMatch = pageStr.match(/(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})/i) || 
-                                    pageStr.match(/(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9]{2}[-/.]\d{2}[-/.]\d{4})/i) ||
-                                    pageStr.match(/(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9A-Za-z\-./]{10,12})/i);
-                  
+                if (currentRecord.date === 'Not Found') {
+                  const dateMatch =
+                    pageStr.match(
+                      /(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})/i
+                    ) ||
+                    pageStr.match(
+                      /(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9]{2}[-/.]\d{2}[-/.]\d{4})/i
+                    ) ||
+                    pageStr.match(/(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9A-Za-z\-./]{10,12})/i);
+
                   if (dateMatch && dateMatch[1] && /\d/.test(dateMatch[1])) {
                     currentRecord.date = dateMatch[1].trim().replace(/[\]|]/g, '');
                   } else {
                     const dateAnchorIndex = pageStr.search(/(?:Generated Date|अनुबंध तिथि|Dated)/i);
                     if (dateAnchorIndex !== -1) {
                       const localSnippet = pageStr.substring(dateAnchorIndex, dateAnchorIndex + 120);
-                      const fallbackDate = localSnippet.match(/\d{2}-[A-Za-z]{3}-\d{4}/) || localSnippet.match(/\d{2}[-/.]\d{2}[-/.]\d{4}/);
+                      const fallbackDate =
+                        localSnippet.match(/\d{2}-[A-Za-z]{3}-\d{4}/) || localSnippet.match(/\d{2}[-/.]\d{2}[-/.]\d{4}/);
                       if (fallbackDate) {
                         currentRecord.date = fallbackDate[0].trim();
                       }
@@ -595,33 +805,33 @@ export default function Dashboard() {
                   }
                 }
 
-                // 3. FULL HIGH-PRECISION 3-TIER VALUE EXTRACTION
-                if (currentRecord.woValue === "Not Found") {
-                  // TIER 1: Total Contract Value Including All Duties and Taxes(INR) / Hindi
+                if (currentRecord.woValue === 'Not Found') {
                   const tier1Match = pageStr.match(
                     /(?:Total\s*Contract\s*Value\s*Including\s*All\s*Duties\s*and\s*Taxes(?:\s*\(\s*INR\s*\))?|सभी\s*शुल्क\s*और\s*करों\s*सहित\s*कुल\s*अनुबंध\s*मूल्य)[:\s|]*([0-9](?:[0-9.,]|\s(?=[0-9.,]))*[0-9])/i
                   );
 
                   if (tier1Match && tier1Match[1].replace(/[^0-9]/g, '').length >= 4) {
-                    currentRecord.woValue = "₹ " + tier1Match[1].replace(/\s+/g, '').trim();
+                    currentRecord.woValue = '₹ ' + tier1Match[1].replace(/\s+/g, '').trim();
                   } else {
-                    // TIER 2: Total Amount Including All Duties and Taxes in INR
                     const tier2Match = pageStr.match(
                       /(?:Total\s*Amount\s*Including\s*All\s*Duties\s*and\s*Taxes\s*in\s*INR)[:\s|]*([0-9](?:[0-9.,]|\s(?=[0-9.,]))*[0-9])/i
                     );
 
                     if (tier2Match && tier2Match[1].replace(/[^0-9]/g, '').length >= 4) {
-                      currentRecord.woValue = "₹ " + tier2Match[1].replace(/\s+/g, '').trim();
+                      currentRecord.woValue = '₹ ' + tier2Match[1].replace(/\s+/g, '').trim();
                     } else {
-                      // TIER 3: CONTEXT WINDOW FALLBACK SCANNER
-                      const valueAnchorIndex = pageStr.search(/(?:Duties and Taxes|कुल अनुबंध मूल्य|Contract Value|Original Value|Total Amount|Order Value)/i);
+                      const valueAnchorIndex = pageStr.search(
+                        /(?:Duties and Taxes|कुल अनुबंध मूल्य|Contract Value|Original Value|Total Amount|Order Value)/i
+                      );
                       if (valueAnchorIndex !== -1) {
                         const contextWindowSnippet = pageStr.substring(valueAnchorIndex, valueAnchorIndex + 200);
-                        const fallbackNumMatch = contextWindowSnippet.match(/[0-9](?:[0-9,]|\s(?=[0-9,]))*(?:\s?\.\s?[0-9]+)?/);
+                        const fallbackNumMatch = contextWindowSnippet.match(
+                          /[0-9](?:[0-9,]|\s(?=[0-9,]))*(?:\s?\.\s?[0-9]+)?/
+                        );
                         if (fallbackNumMatch) {
                           const cleanedFallback = fallbackNumMatch[0].replace(/\s+/g, '');
                           if (cleanedFallback.replace(/[^0-9]/g, '').length >= 4) {
-                            currentRecord.woValue = "₹ " + cleanedFallback.trim();
+                            currentRecord.woValue = '₹ ' + cleanedFallback.trim();
                           }
                         }
                       }
@@ -629,67 +839,62 @@ export default function Dashboard() {
                   }
                 }
 
-                // 4. MINISTRY EXTRACTION
-                if (currentRecord.ministry === "Not Found") {
-                  const ministryMatch = pageStr.match(/Ministry\s?of\s?([A-Za-z\s]{3,40})(?=\s?Department|\s?महानिदेशालय|\s?\||$)/i) || 
-                                        pageStr.match(/Ministry\s?of\s?([A-Za-z\s]{3,40})/i) ||
-                                        pageStr.match(/(?:Organization Details|संगठन विवरण|Buyer Details)[:\s|]*Ministry\s?of\s?([A-Za-z\s]{3,40})/i);
-                  
+                if (currentRecord.ministry === 'Not Found') {
+                  const ministryMatch =
+                    pageStr.match(/Ministry\s?of\s?([A-Za-z\s]{3,40})(?=\s?Department|\s?महानिदेशालय|\s?\||$)/i) ||
+                    pageStr.match(/Ministry\s?of\s?([A-Za-z\s]{3,40})/i) ||
+                    pageStr.match(
+                      /(?:Organization Details|संगठन विवरण|Buyer Details)[:\s|]*Ministry\s?of\s?([A-Za-z\s]{3,40})/i
+                    );
+
                   if (ministryMatch && ministryMatch[1]) {
-                    currentRecord.ministry = "Ministry of " + ministryMatch[1].trim();
+                    currentRecord.ministry = 'Ministry of ' + ministryMatch[1].trim();
                   } else {
-                    const orgMatch = pageStr.match(/(?:Organisation Name|संगठन का नाम)[:\s|]*([A-Za-z\s]{4,40})(?=\s?Type|\||$)/i);
+                    const orgMatch = pageStr.match(
+                      /(?:Organisation Name|संगठन का नाम)[:\s|]*([A-Za-z\s]{4,40})(?=\s?Type|\||$)/i
+                    );
                     if (orgMatch && orgMatch[1] && !/Not Found/i.test(orgMatch[1])) {
                       currentRecord.ministry = orgMatch[1].trim();
                     } else {
-                      if (/Defence|Defense/i.test(pageStr)) currentRecord.ministry = "Ministry of Defence";
-                      else if (/Finance/i.test(pageStr)) currentRecord.ministry = "Ministry of Finance";
-                      else if (/Railways/i.test(pageStr)) currentRecord.ministry = "Ministry of Railways";
-                      else if (/Textiles/i.test(pageStr)) currentRecord.ministry = "Ministry of Textiles";
-                      else if (/Communications/i.test(pageStr)) currentRecord.ministry = "Ministry of Communications";
-                      else if (/Labour/i.test(pageStr)) currentRecord.ministry = "Ministry of Labour and Employment";
+                      if (/Defence|Defense/i.test(pageStr)) currentRecord.ministry = 'Ministry of Defence';
+                      else if (/Finance/i.test(pageStr)) currentRecord.ministry = 'Ministry of Finance';
+                      else if (/Railways/i.test(pageStr)) currentRecord.ministry = 'Ministry of Railways';
+                      else if (/Textiles/i.test(pageStr)) currentRecord.ministry = 'Ministry of Textiles';
+                      else if (/Communications/i.test(pageStr)) currentRecord.ministry = 'Ministry of Communications';
+                      else if (/Labour/i.test(pageStr)) currentRecord.ministry = 'Ministry of Labour and Employment';
                     }
                   }
                 }
 
-                // 5. AI Fallback trigger if missing WO Number or WO Value
-                if (currentRecord.woNumber === "Not Found" || currentRecord.woValue === "Not Found") {
+                if (currentRecord.woNumber === 'Not Found' && currentRecord.woValue === 'Not Found') {
                   const aiResult = await callAiFallback(pageStr);
                   if (aiResult) {
-                    if (currentRecord.woNumber === "Not Found" && aiResult.woNumber && aiResult.woNumber !== "Not Found") {
+                    if (currentRecord.woNumber === 'Not Found' && aiResult.woNumber)
                       currentRecord.woNumber = aiResult.woNumber;
-                    }
-                    if (currentRecord.woValue === "Not Found" && aiResult.woValue && aiResult.woValue !== "Not Found") {
+                    if (currentRecord.woValue === 'Not Found' && aiResult.woValue)
                       currentRecord.woValue = aiResult.woValue;
-                    }
-                    if (currentRecord.date === "Not Found" && aiResult.date && aiResult.date !== "Not Found") {
-                      currentRecord.date = aiResult.date;
-                    }
-                    if (currentRecord.ministry === "Not Found" && aiResult.ministry && aiResult.ministry !== "Not Found") {
+                    if (currentRecord.date === 'Not Found' && aiResult.date) currentRecord.date = aiResult.date;
+                    if (currentRecord.ministry === 'Not Found' && aiResult.ministry)
                       currentRecord.ministry = aiResult.ministry;
-                    }
                   }
                 }
               }
             }
 
-            // Push last record
-            if (currentRecord) {
-              localRecords.push(currentRecord);
-            }
+            if (currentRecord) localRecords.push(currentRecord);
 
-            // Global fallback if zero records extracted
             if (localRecords.length === 0) {
               const aiResult = await callAiFallback(globalText);
               if (aiResult) {
                 localRecords.push({
-                  id: `rec-${Date.now()}`,
-                  woNumber: aiResult.woNumber || "Not Found",
-                  woValue: aiResult.woValue || "Not Found",
-                  date: aiResult.date || "Not Found",
-                  ministry: aiResult.ministry || "Not Found",
+                  id: `rec-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+                  createdAt: Date.now(),
+                  woNumber: aiResult.woNumber || 'Not Found',
+                  woValue: aiResult.woValue || 'Not Found',
+                  date: aiResult.date || 'Not Found',
+                  ministry: aiResult.ministry || 'Not Found',
                   fileName: file.name,
-                  pageIndex: 1
+                  pageIndex: 1,
                 });
               }
             }
@@ -699,20 +904,17 @@ export default function Dashboard() {
             ...record,
             woValue: formatIndianCurrency(record.woValue),
             date: formatDateDisplay(record.date),
-            completionCertificate: record.completionCertificate || "No",
-            recommendation: record.recommendation || "No"
+            completionCertificate: record.completionCertificate || 'No',
+            recommendation: record.recommendation || 'No',
           }));
 
-          // Safe Deduplication by Page Index to keep all work orders intact
           const fieldScore = (r) =>
-            ['woNumber', 'woValue', 'date', 'ministry']
-              .filter((f) => r[f] && r[f] !== 'Not Found').length;
+            ['woNumber', 'woValue', 'date', 'ministry'].filter((f) => r[f] && r[f] !== 'Not Found').length;
 
           const bestByWo = new Map();
           localRecords.forEach((record) => {
-            const key = record.woNumber !== "Not Found" 
-              ? `${record.woNumber}-p${record.pageIndex}` 
-              : record.id;
+            const key =
+              record.woNumber !== 'Not Found' ? `${record.woNumber}-p${record.pageIndex}` : record.id;
 
             if (!bestByWo.has(key) || fieldScore(record) > fieldScore(bestByWo.get(key))) {
               bestByWo.set(key, record);
@@ -722,11 +924,83 @@ export default function Dashboard() {
           localRecords = Array.from(bestByWo.values());
 
           resolve(localRecords);
-        } catch (err) { reject(err); }
+        } catch (err) {
+          reject(err);
+        } finally {
+          if (pdf) {
+            try {
+              await pdf.destroy();
+            } catch (e) {}
+          }
+          if (loadingTask) {
+            try {
+              await loadingTask.destroy();
+            } catch (e) {}
+          }
+        }
       };
 
       reader.readAsArrayBuffer(file);
     });
+  };
+
+  const addRecordsToState = (newRecords) => {
+    if (!newRecords.length) return;
+    setExtractedData((prev) => {
+      const combined = [...prev, ...newRecords];
+      return sortExtractedData(combined);
+    });
+  };
+
+  const handleFileUpload = async (e) => {
+    const rawFiles = Array.from(e.target.files);
+    if (!rawFiles.length) return;
+
+    const sortedFiles = rawFiles.sort((a, b) => naturalSort(a.name, b.name));
+
+    setIsProcessing(true);
+    clientLogger('info', `Started processing ${sortedFiles.length} files`);
+
+    let unwrittenBuffer = [];
+
+    for (let index = 0; index < sortedFiles.length; index++) {
+      const currentFile = sortedFiles[index];
+
+      setProgress({
+        current: index + 1,
+        total: sortedFiles.length,
+        file: currentFile.name,
+        currentFileIndex: index + 1,
+        totalFiles: sortedFiles.length,
+      });
+
+      try {
+        const parsedResults = await parsePdfFileContextAsync(currentFile);
+        if (parsedResults.length) {
+          addRecordsToState(parsedResults);
+          unwrittenBuffer.push(...parsedResults);
+          clientLogger('info', `Parsed ${currentFile.name} -> ${parsedResults.length} records`);
+        }
+
+        if (unwrittenBuffer.length >= 50 || index === sortedFiles.length - 1) {
+          saveToPostgresInChunks(unwrittenBuffer.slice()).catch((err) =>
+            console.error('Background save failed:', err)
+          );
+          unwrittenBuffer = [];
+        }
+
+        if (index % 3 === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 30));
+        }
+      } catch (error) {
+        console.error(`Error parsing file ${currentFile.name}:`, error);
+        clientLogger('error', `Error parsing ${currentFile.name}`, { error: error.message });
+      }
+    }
+
+    setIsProcessing(false);
+    e.target.value = null;
+    clientLogger('info', 'Finished file processing');
   };
 
   const triggerFolderBrowse = () => {
@@ -746,6 +1020,7 @@ export default function Dashboard() {
 
     setVendorFolders({});
     setSelectedVendors({});
+    clientLogger('info', `Browsed folder: ${rootFolderName} (${files.length} files)`);
   };
 
   const readVendorFolders = () => {
@@ -764,11 +1039,18 @@ export default function Dashboard() {
       grouped[vendor].push(file);
     });
 
+    Object.keys(grouped).forEach((vendor) => {
+      grouped[vendor].sort((a, b) => naturalSort(a.name, b.name));
+    });
+
     setVendorFolders(grouped);
     const initialSelection = {};
-    Object.keys(grouped).forEach((v) => { initialSelection[v] = true; });
+    Object.keys(grouped).forEach((v) => {
+      initialSelection[v] = true;
+    });
     setSelectedVendors(initialSelection);
     setIsReadingFolders(false);
+    clientLogger('info', `Read vendor folders: ${Object.keys(grouped).length} vendors found`);
   };
 
   const toggleVendorSelection = (vendor) => {
@@ -777,12 +1059,17 @@ export default function Dashboard() {
 
   const toggleSelectAllVendors = (checked) => {
     const updated = {};
-    Object.keys(vendorFolders).forEach((v) => { updated[v] = checked; });
+    Object.keys(vendorFolders).forEach((v) => {
+      updated[v] = checked;
+    });
     setSelectedVendors(updated);
   };
 
   const processSelectedVendors = async () => {
-    const vendorsToProcess = Object.keys(vendorFolders).filter((v) => selectedVendors[v]);
+    const vendorsToProcess = Object.keys(vendorFolders)
+      .filter((v) => selectedVendors[v])
+      .sort(naturalSort);
+
     if (!vendorsToProcess.length) return;
 
     const queue = [];
@@ -793,6 +1080,7 @@ export default function Dashboard() {
 
     setIsBulkProcessing(true);
     setBulkProgress({ currentFileIndex: 0, totalFiles: queue.length, currentFileName: '', currentVendor: '' });
+    clientLogger('info', `Starting bulk processing: ${queue.length} files from ${vendorsToProcess.length} vendors`);
 
     let unwrittenBuffer = [];
 
@@ -803,139 +1091,152 @@ export default function Dashboard() {
         currentFileIndex: idx + 1,
         totalFiles: queue.length,
         currentFileName: file.name,
-        currentVendor: vendor
+        currentVendor: vendor,
       });
 
       try {
         const parsedResults = await parsePdfFileContextAsync(file);
-        const mappedRecords = parsedResults.map((r) => ({ ...r, vendorFolder: vendor }));
-        unwrittenBuffer.push(...mappedRecords);
+        if (parsedResults.length) {
+          const mappedRecords = parsedResults.map((r) => ({ ...r, vendorFolder: vendor }));
+          addRecordsToState(mappedRecords);
+          unwrittenBuffer.push(...mappedRecords);
+          clientLogger('info', `Bulk: parsed ${file.name} (vendor: ${vendor}) -> ${mappedRecords.length} records`);
+        }
 
-        // Flush buffer to DB every 50 records or on the last file
         if (unwrittenBuffer.length >= 50 || idx === queue.length - 1) {
-          await saveToPostgresInChunks(unwrittenBuffer);
+          saveToPostgresInChunks(unwrittenBuffer.slice()).catch((err) =>
+            console.error('Background save failed:', err)
+          );
           unwrittenBuffer = [];
         }
 
-        // Clean up Blob URLs to keep memory lean
-        if (fileBlobsMapRef.current.has(file.name)) {
-          const blobUrl = fileBlobsMapRef.current.get(file.name);
-          URL.revokeObjectURL(blobUrl);
-          fileBlobsMapRef.current.delete(file.name);
-        }
-
-        // Allow UI progress bar to repaint smoothly every 5 items
-        if (idx % 5 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 15));
+        if (idx % 3 === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 30));
         }
       } catch (err) {
         console.error(`Failed to process "${file.name}" (vendor: ${vendor})`, err);
+        clientLogger('error', `Bulk processing failed for ${file.name}`, { error: err.message });
       }
     }
 
     setIsBulkProcessing(false);
+    clientLogger('info', 'Bulk processing completed');
   };
 
   return (
     <main className="w-full max-w-[98vw] mx-auto px-2 sm:px-4 lg:px-6 py-6">
-      <input type="file" ref={fileInputRef} accept=".pdf" className="hidden" onChange={handleVerifyFileRedirect} />
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept=".pdf"
+        className="hidden"
+        onChange={handleVerifyFileRedirect}
+      />
 
-      <div className="max-w-4xl mx-auto">
-        <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
-          <header className="flex items-center space-x-2 mb-2 text-indigo-600">
-            <FolderOpen size={20} className={isBulkProcessing ? "animate-pulse" : ""} />
-            <span className="text-xs font-bold uppercase tracking-wider">Vendor Folder Bulk Import</span>
-          </header>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">Import by Vendor Folder</h2>
-          <p className="text-sm text-gray-500 mb-6">
-            Choose a root folder. Every sub-folder inside it is treated as a vendor, and the PDF files inside each
-            sub-folder are grouped under that vendor's name. Select which vendors to process, then run the import.
-          </p>
+      {/* Vendor Folder Bulk Import Section */}
+      <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6 max-w-4xl mx-auto">
+        <header className="flex items-center space-x-2 mb-2 text-indigo-600">
+          <FolderOpen size={20} className={isBulkProcessing ? 'animate-pulse' : ''} />
+          <span className="text-xs font-bold uppercase tracking-wider">Vendor Folder Bulk Import</span>
+        </header>
+        <h2 className="text-lg font-bold text-gray-900 mb-2">Import by Vendor Folder</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Choose a root folder. Folders will be naturally sorted (Folder 1, Folder 2, Folder 3...) and files inside will
+          be read in order.
+        </p>
 
+        <input
+          ref={folderInputRef}
+          type="file"
+          webkitdirectory=""
+          directory=""
+          multiple
+          className="hidden"
+          onChange={handleBrowseFolder}
+          disabled={isBulkProcessing || isReadingFolders}
+        />
+
+        <div className="flex items-center space-x-3 mb-4">
           <input
-            ref={folderInputRef}
-            type="file"
-            webkitdirectory=""
-            directory=""
-            multiple
-            className="hidden"
-            onChange={handleBrowseFolder}
-            disabled={isBulkProcessing || isReadingFolders}
+            type="text"
+            readOnly
+            value={selectedFolderPath}
+            placeholder="No folder selected yet — click Browse to choose one"
+            aria-label="Selected vendor folder path"
+            className="flex-1 text-sm text-gray-700 bg-gray-50 border border-gray-300 rounded-lg px-4 py-2.5 truncate focus:outline-none"
           />
+          <button
+            type="button"
+            onClick={triggerFolderBrowse}
+            disabled={isBulkProcessing || isReadingFolders}
+            className="flex items-center space-x-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg transition flex-shrink-0"
+          >
+            <FolderOpen size={16} />
+            <span>Browse</span>
+          </button>
+        </div>
 
-          <div className="flex items-center space-x-3 mb-4">
-            <input
-              type="text"
-              readOnly
-              value={selectedFolderPath}
-              placeholder="No folder selected yet — click Browse to choose one"
-              aria-label="Selected vendor folder path"
-              className="flex-1 text-sm text-gray-700 bg-gray-50 border border-gray-300 rounded-lg px-4 py-2.5 truncate focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={triggerFolderBrowse}
-              disabled={isBulkProcessing || isReadingFolders}
-              className="flex items-center space-x-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg transition flex-shrink-0"
-            >
-              <FolderOpen size={16} />
-              <span>Browse</span>
-            </button>
-          </div>
+        <nav aria-label="Vendor Folder Controls" className="flex items-center space-x-3 mb-6">
+          <button
+            type="button"
+            onClick={readVendorFolders}
+            disabled={!rawFolderFiles.length || isReadingFolders || isBulkProcessing}
+            className="flex items-center space-x-2 text-sm font-semibold text-white bg-gray-700 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
+          >
+            {isReadingFolders ? <RefreshCw size={16} className="animate-spin" /> : <ListChecks size={16} />}
+            <span>{isReadingFolders ? 'Reading...' : 'Read Folders / Vendors'}</span>
+          </button>
 
-          <nav aria-label="Vendor Folder Controls" className="flex items-center space-x-3 mb-6">
-            <button
-              type="button"
-              onClick={readVendorFolders}
-              disabled={!rawFolderFiles.length || isReadingFolders || isBulkProcessing}
-              className="flex items-center space-x-2 text-sm font-semibold text-white bg-gray-700 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
-            >
-              {isReadingFolders ? <RefreshCw size={16} className="animate-spin" /> : <ListChecks size={16} />}
-              <span>{isReadingFolders ? 'Reading...' : 'Read Folders / Vendors'}</span>
-            </button>
+          <button
+            type="button"
+            onClick={processSelectedVendors}
+            disabled={
+              isBulkProcessing ||
+              Object.keys(vendorFolders).length === 0 ||
+              !Object.values(selectedVendors).some(Boolean)
+            }
+            className="flex items-center space-x-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
+          >
+            <UploadCloud size={16} />
+            <span>Upload Files from Selected Folders</span>
+          </button>
+        </nav>
 
-            <button
-              type="button"
-              onClick={processSelectedVendors}
-              disabled={isBulkProcessing || Object.keys(vendorFolders).length === 0 || !Object.values(selectedVendors).some(Boolean)}
-              className="flex items-center space-x-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
-            >
-              <UploadCloud size={16} />
-              <span>Upload Files from Selected Folders</span>
-            </button>
-          </nav>
-
-          {Object.keys(vendorFolders).length > 0 && (
-            <aside className="border border-gray-200 rounded-lg overflow-hidden mb-2">
-              <header className="flex justify-between items-center px-4 py-3 bg-gray-50 border-b border-gray-200">
-                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center space-x-1.5">
-                  <Building2 size={14} />
-                  <span>{Object.keys(vendorFolders).length} Vendor Folder(s) Detected</span>
-                </span>
-                <nav aria-label="Selection options" className="flex items-center space-x-3 text-xs font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => toggleSelectAllVendors(true)}
-                    disabled={isBulkProcessing}
-                    className="text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleSelectAllVendors(false)}
-                    disabled={isBulkProcessing}
-                    className="text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                  >
-                    Clear
-                  </button>
-                </nav>
-              </header>
-              <ul className="max-h-56 overflow-y-auto divide-y divide-gray-100">
-                {Object.keys(vendorFolders).sort().map((vendor) => (
+        {Object.keys(vendorFolders).length > 0 && (
+          <aside className="border border-gray-200 rounded-lg overflow-hidden mb-2">
+            <header className="flex justify-between items-center px-4 py-3 bg-gray-50 border-b border-gray-200">
+              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center space-x-1.5">
+                <Building2 size={14} />
+                <span>{Object.keys(vendorFolders).length} Vendor Folder(s) Detected</span>
+              </span>
+              <nav aria-label="Selection options" className="flex items-center space-x-3 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => toggleSelectAllVendors(true)}
+                  disabled={isBulkProcessing}
+                  className="text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleSelectAllVendors(false)}
+                  disabled={isBulkProcessing}
+                  className="text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              </nav>
+            </header>
+            <ul className="max-h-56 overflow-y-auto divide-y divide-gray-100">
+              {Object.keys(vendorFolders)
+                .sort(naturalSort)
+                .map((vendor) => (
                   <li key={vendor}>
                     <label
-                      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${isBulkProcessing ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${
+                        isBulkProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                      }`}
                     >
                       <div className="flex items-center space-x-3">
                         <input
@@ -951,55 +1252,51 @@ export default function Dashboard() {
                     </label>
                   </li>
                 ))}
-              </ul>
-            </aside>
-          )}
+            </ul>
+          </aside>
+        )}
 
-          {isBulkProcessing && (
-            <aside className="mt-6" aria-label="Bulk processing progress">
-              <div className="flex justify-between items-center mb-1.5">
-                <span className="text-xs font-semibold text-indigo-600">
-                  Vendor: {bulkProgress.currentVendor || '—'}
-                </span>
-                <span className="text-xs text-gray-400">
-                  {bulkProgress.currentFileIndex} / {bulkProgress.totalFiles}
-                </span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                <div
-                  className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${bulkProgress.totalFiles ? (bulkProgress.currentFileIndex / bulkProgress.totalFiles) * 100 : 0}%`
-                  }}
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-1.5 truncate">
-                Processing: {bulkProgress.currentFileName || 'Starting...'}
-              </p>
-            </aside>
-          )}
-        </section>
-      </div>
+        {isBulkProcessing && (
+          <aside className="mt-6" aria-label="Bulk processing progress">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-xs font-semibold text-indigo-600">Vendor: {bulkProgress.currentVendor || '—'}</span>
+              <span className="text-xs text-gray-400">
+                {bulkProgress.currentFileIndex} / {bulkProgress.totalFiles}
+              </span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                style={{
+                  width: `${bulkProgress.totalFiles ? (bulkProgress.currentFileIndex / bulkProgress.totalFiles) * 100 : 0}%`,
+                }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1.5 truncate">Processing: {bulkProgress.currentFileName || 'Starting...'}</p>
+          </aside>
+        )}
+      </section>
 
+      {/* Extracted Data Table */}
       <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden w-full">
         <header className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
           <div>
             <h2 className="font-bold text-gray-900 text-base">Extracted Bid Columns</h2>
             <p className="text-xs text-gray-400 mt-0.5">High precision composite verification table entries.</p>
           </div>
-          
-          {extractedData.length > 0 && (
+
+          {extractedData.length > 0 && !isTableLoading && (
             <nav aria-label="Table Actions" className="flex items-center space-x-3">
-              <button 
+              <button
                 type="button"
-                onClick={clearHistory} 
+                onClick={clearHistory}
                 className="text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-2 rounded-lg transition"
               >
                 Wipe History
               </button>
-              <button 
+              <button
                 type="button"
-                onClick={exportToExcel} 
+                onClick={exportToExcel}
                 className="flex items-center space-x-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg transition"
               >
                 <Download size={14} />
@@ -1009,39 +1306,78 @@ export default function Dashboard() {
           )}
         </header>
 
-        {extractedData.length === 0 ? (
-          <article className="p-12 text-center text-gray-400 flex flex-col items-center justify-center">
-            <FileText size={40} className="mb-2 stroke-1" />
-            <p className="text-sm">No processed records found.</p>
-          </article>
-        ) : (
-          <div className="overflow-x-auto max-h-[75vh]">
-            <table className="w-full text-left border-collapse relative">
-              <thead className="sticky top-0 z-20 bg-gray-100 border-b border-gray-200 shadow-sm">
-                <tr className="text-xs font-semibold uppercase tracking-wider text-gray-600">
-                  <th scope="col" className="py-3 px-3 w-[4%] bg-gray-100">S.No</th>
-                  <th scope="col" className="py-3 px-3 w-[13%] bg-gray-100">WO Number</th>
-                  <th scope="col" className="py-3 px-3 w-[10%] bg-gray-100">WO Value</th>
-                  <th scope="col" className="py-3 px-3 w-[8%] bg-gray-100">Date</th>
-                  <th scope="col" className="py-3 px-3 w-[10%] bg-gray-100">{`Whether WO Date During ${formatDateObject(DATE_VERIFICATION_CUTOFF)}`}</th>
-                  <th scope="col" className="py-3 px-3 w-[20%] bg-gray-100">Ministry / Division</th>
-                  <th scope="col" className="py-3 px-3 w-[11%] bg-gray-100">WO for Petroleum/Petrochemical Refinery</th>
-                  <th scope="col" className="py-3 px-3 w-[11%] bg-gray-100">Rule Check</th>
-                  <th scope="col" className="py-3 px-3 w-[7%] bg-gray-100">Completion Certificate</th>
-                  <th scope="col" className="py-3 px-3 w-[7%] bg-gray-100">Recommendation</th>
-                  <th scope="col" className="py-3 px-2 w-[2%] bg-gray-100"><span className="sr-only">Actions</span></th>
+        <div className="overflow-x-auto max-h-[75vh]">
+          <table className="w-full text-left border-collapse relative">
+            <thead className="sticky top-0 z-20 bg-gray-100 border-b border-gray-200 shadow-sm">
+              <tr className="text-xs font-semibold uppercase tracking-wider text-gray-600">
+                <th scope="col" className="py-3 px-3 w-[4%] bg-gray-100">
+                  S.No
+                </th>
+                <th scope="col" className="py-3 px-3 w-[13%] bg-gray-100">
+                  WO Number
+                </th>
+                <th scope="col" className="py-3 px-3 w-[10%] bg-gray-100">
+                  WO Value
+                </th>
+                <th scope="col" className="py-3 px-3 w-[8%] bg-gray-100">
+                  Date
+                </th>
+                <th scope="col" className="py-3 px-3 w-[10%] bg-gray-100">
+                  {`Whether WO Date During ${formatDateObject(DATE_VERIFICATION_CUTOFF)}`}
+                </th>
+                <th scope="col" className="py-3 px-3 w-[20%] bg-gray-100">
+                  Ministry / Division
+                </th>
+                <th scope="col" className="py-3 px-3 w-[11%] bg-gray-100">
+                  WO for Petroleum/Petrochemical Refinery
+                </th>
+                <th scope="col" className="py-3 px-3 w-[11%] bg-gray-100">
+                  Rule Check
+                </th>
+                <th scope="col" className="py-3 px-3 w-[7%] bg-gray-100">
+                  Completion Certificate
+                </th>
+                <th scope="col" className="py-3 px-3 w-[7%] bg-gray-100">
+                  Recommendation
+                </th>
+                <th scope="col" className="py-3 px-2 w-[2%] bg-gray-100">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 text-sm font-medium text-gray-700">
+              {isTableLoading ? (
+                Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} />)
+              ) : extractedData.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className="p-12 text-center text-gray-400">
+                    <FileText size={40} className="mx-auto mb-2 stroke-1" />
+                    <p className="text-sm">No processed records found.</p>
+                    <p className="text-xs text-gray-300 mt-1">Import PDFs using the Vendor Folder section above.</p>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-sm font-medium text-gray-700">
-                {(() => {
+              ) : (
+                (() => {
                   const serialNumbers = computeVendorSerialNumbers(extractedData);
                   const ruleCheckByVendor = computeRuleCheckByVendor(extractedData);
                   return extractedData.map((row, index) => {
-                    const showVendorHeader = row.vendorFolder && (index === 0 || extractedData[index - 1].vendorFolder !== row.vendorFolder);
-                    const dateVerified = row.dateVerified !== undefined ? row.dateVerified : verifyDateAfterCutoff(row.date);
-                    const ministryVerified = row.ministryVerified !== undefined ? row.ministryVerified : verifyMinistryDepartment(row.ministry);
-                    const completionCertificate = row.completionCertificate || "No";
-                    const recommendation = row.recommendation || "No";
+                    const currentVendor =
+                      row.vendorFolder && row.vendorFolder.trim() !== '' ? row.vendorFolder : 'Uncategorized Vendor';
+                    const prevVendor =
+                      index > 0
+                        ? extractedData[index - 1].vendorFolder &&
+                          extractedData[index - 1].vendorFolder.trim() !== ''
+                          ? extractedData[index - 1].vendorFolder
+                          : 'Uncategorized Vendor'
+                        : null;
+
+                    const showVendorHeader = index === 0 || currentVendor !== prevVendor;
+                    const dateVerified =
+                      row.dateVerified !== undefined ? row.dateVerified : verifyDateAfterCutoff(row.date);
+                    const ministryVerified =
+                      row.ministryVerified !== undefined ? row.ministryVerified : verifyMinistryDepartment(row.ministry);
+                    const completionCertificate = row.completionCertificate || 'No';
+                    const recommendation = row.recommendation || 'No';
                     const isCellEditing = (field) => editingCell?.rowId === row.id && editingCell?.field === field;
 
                     const woValueNumeric = parseCurrencyToNumber(row.woValue);
@@ -1055,16 +1391,14 @@ export default function Dashboard() {
                     return (
                       <React.Fragment key={row.id}>
                         {showVendorHeader && (
-                          <tr className="bg-indigo-50/70">
-                            <td colSpan={11} className="py-2 px-3 text-xs font-bold uppercase tracking-wide text-indigo-700">
-                              {row.vendorFolder}
+                          <tr className="bg-indigo-50/70 border-t-2 border-indigo-200">
+                            <td colSpan={11} className="py-2.5 px-3 text-xs font-bold uppercase tracking-wide text-indigo-800 bg-indigo-100/60">
+                              📁 {currentVendor}
                             </td>
                           </tr>
                         )}
                         <tr className="group/row hover:bg-slate-50/80 transition-colors align-top">
-                          <td className="py-3 px-3 text-gray-400 font-mono text-xs">
-                            {serialNumbers[index]}
-                          </td>
+                          <td className="py-3 px-3 text-gray-400 font-mono text-xs">{serialNumbers[index]}</td>
 
                           <td className="py-3 px-3">
                             <EditableField
@@ -1076,13 +1410,15 @@ export default function Dashboard() {
                               onCancel={cancelEditingCell}
                               displayContent={
                                 <div className="flex items-start justify-between gap-1">
-                                  <span className="font-mono text-gray-900 bg-gray-50 px-1.5 py-0.5 border border-gray-200 rounded text-[11px] break-all">{row.woNumber}</span>
+                                  <span className="font-mono text-gray-900 bg-gray-50 px-1.5 py-0.5 border border-gray-200 rounded text-[11px] break-all">
+                                    {row.woNumber}
+                                  </span>
                                   <button
                                     type="button"
                                     onClick={() => verifyAndOpenPdf(row)}
                                     className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition flex-shrink-0"
-                                    title="Open PDF Page Mapping Location"
-                                    aria-label="Open PDF Document Page"
+                                    title="Open PDF in Modal"
+                                    aria-label="Open PDF Document in Modal"
                                   >
                                     <ExternalLink size={13} />
                                   </button>
@@ -1099,7 +1435,15 @@ export default function Dashboard() {
                               onStartEdit={() => startEditingCell(row, 'woValue')}
                               onSave={saveEditingCell}
                               onCancel={cancelEditingCell}
-                              displayContent={<span className={`font-semibold break-words ${isBelowR1Threshold ? "text-red-600" : "text-emerald-700"}`}>{row.woValue}</span>}
+                              displayContent={
+                                <span
+                                  className={`font-semibold break-words ${
+                                    isBelowR1Threshold ? 'text-red-600' : 'text-emerald-700'
+                                  }`}
+                                >
+                                  {row.woValue}
+                                </span>
+                              }
                             />
                           </td>
 
@@ -1118,7 +1462,7 @@ export default function Dashboard() {
                           <td className="py-3 px-3 text-center">
                             <EditableField
                               type="select"
-                              options={["Yes", "No"]}
+                              options={['Yes', 'No']}
                               isEditing={isCellEditing('dateVerified')}
                               editValue={editValue}
                               onEditValueChange={setEditValue}
@@ -1126,7 +1470,7 @@ export default function Dashboard() {
                               onSave={saveEditingCell}
                               onCancel={cancelEditingCell}
                               displayContent={
-                                dateVerified === "Yes" ? (
+                                dateVerified === 'Yes' ? (
                                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                     Yes
                                   </span>
@@ -1154,7 +1498,7 @@ export default function Dashboard() {
                           <td className="py-3 px-3 text-center">
                             <EditableField
                               type="select"
-                              options={["Yes", "No"]}
+                              options={['Yes', 'No']}
                               isEditing={isCellEditing('ministryVerified')}
                               editValue={editValue}
                               onEditValueChange={setEditValue}
@@ -1162,7 +1506,7 @@ export default function Dashboard() {
                               onSave={saveEditingCell}
                               onCancel={cancelEditingCell}
                               displayContent={
-                                ministryVerified === "Yes" ? (
+                                ministryVerified === 'Yes' ? (
                                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                     Yes
                                   </span>
@@ -1178,13 +1522,31 @@ export default function Dashboard() {
                           <td className="py-3 px-3 text-center">
                             {showRuleCheck && (
                               <div className="inline-flex items-center space-x-1">
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R1 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-600 border-red-200"}`}>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
+                                    ruleCheckResult.R1
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-red-50 text-red-600 border-red-200'
+                                  }`}
+                                >
                                   R1
                                 </span>
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R2 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-600 border-red-200"}`}>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
+                                    ruleCheckResult.R2
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-red-50 text-red-600 border-red-200'
+                                  }`}
+                                >
                                   R2
                                 </span>
-                                <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R3 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-600 border-red-200"}`}>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
+                                    ruleCheckResult.R3
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-red-50 text-red-600 border-red-200'
+                                  }`}
+                                >
                                   R3
                                 </span>
                               </div>
@@ -1194,7 +1556,7 @@ export default function Dashboard() {
                           <td className="py-3 px-3 text-center">
                             <EditableField
                               type="select"
-                              options={["Yes", "No"]}
+                              options={['Yes', 'No']}
                               isEditing={isCellEditing('completionCertificate')}
                               editValue={editValue}
                               onEditValueChange={setEditValue}
@@ -1202,7 +1564,7 @@ export default function Dashboard() {
                               onSave={saveEditingCell}
                               onCancel={cancelEditingCell}
                               displayContent={
-                                completionCertificate === "Yes" ? (
+                                completionCertificate === 'Yes' ? (
                                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                     Yes
                                   </span>
@@ -1218,7 +1580,7 @@ export default function Dashboard() {
                           <td className="py-3 px-3 text-center">
                             <EditableField
                               type="select"
-                              options={["Yes", "No"]}
+                              options={['Yes', 'No']}
                               isEditing={isCellEditing('recommendation')}
                               editValue={editValue}
                               onEditValueChange={setEditValue}
@@ -1226,7 +1588,7 @@ export default function Dashboard() {
                               onSave={saveEditingCell}
                               onCancel={cancelEditingCell}
                               displayContent={
-                                recommendation === "Yes" ? (
+                                recommendation === 'Yes' ? (
                                   <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                     Yes
                                   </span>
@@ -1254,51 +1616,193 @@ export default function Dashboard() {
                       </React.Fragment>
                     );
                   });
-                })()}
-              </tbody>
-            </table>
-          </div>
-        )}
+                })()
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
 
-      {deleteConfirmRowId && (() => {
-        const rowPendingDelete = extractedData.find((r) => r.id === deleteConfirmRowId);
-        return (
-          <aside className="fixed inset-0 z-50 flex items-center justify-center px-4" role="dialog" aria-modal="true">
-            <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={cancelDeleteRow} />
-            <article className="relative bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-sm p-6">
-              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-50 mx-auto mb-4">
-                <Trash2 size={20} className="text-red-500" />
+      {/* PDF MODAL */}
+      {isPdfModalOpen && modalRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6 bg-gray-900/70 backdrop-blur-sm">
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+              <h3 className="text-lg font-bold text-gray-900">PDF Viewer &amp; Record Editor</h3>
+              <button
+                onClick={closePdfModal}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                aria-label="Close modal"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+              <div className="w-full md:w-1/3 p-6 overflow-y-auto border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50/40">
+                <h4 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-4">Record Details</h4>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">WO Number</label>
+                    <input
+                      type="text"
+                      value={modalEditData.woNumber || ''}
+                      onChange={(e) => handleModalFieldChange('woNumber', e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">WO Value</label>
+                    <input
+                      type="text"
+                      value={modalEditData.woValue || ''}
+                      onChange={(e) => handleModalFieldChange('woValue', e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+                    <input
+                      type="text"
+                      value={modalEditData.date || ''}
+                      onChange={(e) => handleModalFieldChange('date', e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Ministry / Division</label>
+                    <input
+                      type="text"
+                      value={modalEditData.ministry || ''}
+                      onChange={(e) => handleModalFieldChange('ministry', e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Date Verified (Yes/No)</label>
+                    <select
+                      value={modalEditData.dateVerified || verifyDateAfterCutoff(modalEditData.date)}
+                      onChange={(e) => handleModalFieldChange('dateVerified', e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Ministry Verified (Yes/No)</label>
+                    <select
+                      value={modalEditData.ministryVerified || verifyMinistryDepartment(modalEditData.ministry)}
+                      onChange={(e) => handleModalFieldChange('ministryVerified', e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Completion Certificate</label>
+                    <select
+                      value={modalEditData.completionCertificate || 'No'}
+                      onChange={(e) => handleModalFieldChange('completionCertificate', e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Recommendation</label>
+                    <select
+                      value={modalEditData.recommendation || 'No'}
+                      onChange={(e) => handleModalFieldChange('recommendation', e.target.value)}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex items-center space-x-3">
+                  <button
+                    onClick={saveModalChanges}
+                    className="flex items-center space-x-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-5 py-2.5 rounded-lg transition"
+                  >
+                    <Save size={16} />
+                    <span>Save Changes</span>
+                  </button>
+                  <button
+                    onClick={closePdfModal}
+                    className="text-sm font-semibold text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 px-5 py-2.5 rounded-lg transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-              <h3 className="text-base font-bold text-gray-900 text-center mb-1.5">Delete this record?</h3>
-              <p className="text-sm text-gray-500 text-center mb-6 leading-relaxed">
-                {rowPendingDelete ? (
-                  <>WO Number <span className="font-mono text-gray-700 break-all">{rowPendingDelete.woNumber}</span> will be permanently removed. </>
+
+              <div className="w-full md:w-2/3 h-96 md:h-auto bg-gray-100">
+                {modalPdfUrl ? (
+                  <embed
+                    src={modalPdfUrl}
+                    type="application/pdf"
+                    className="w-full h-full"
+                    style={{ minHeight: '400px' }}
+                  />
                 ) : (
-                  'This record will be permanently removed. '
+                  <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                    No PDF available for this record.
+                  </div>
                 )}
-                This action cannot be undone.
-              </p>
-              <footer className="flex items-center space-x-3">
-                <button
-                  type="button"
-                  onClick={cancelDeleteRow}
-                  className="flex-1 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 px-4 py-2.5 rounded-lg transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmDeleteRow}
-                  className="flex-1 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 px-4 py-2.5 rounded-lg transition"
-                >
-                  Delete
-                </button>
-              </footer>
-            </article>
-          </aside>
-        );
-      })()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteConfirmRowId &&
+        (() => {
+          const rowPendingDelete = extractedData.find((r) => r.id === deleteConfirmRowId);
+          return (
+            <aside className="fixed inset-0 z-50 flex items-center justify-center px-4" role="dialog" aria-modal="true">
+              <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={cancelDeleteRow} />
+              <article className="relative bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-sm p-6">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-50 mx-auto mb-4">
+                  <Trash2 size={20} className="text-red-500" />
+                </div>
+                <h3 className="text-base font-bold text-gray-900 text-center mb-1.5">Delete this record?</h3>
+                <p className="text-sm text-gray-500 text-center mb-6 leading-relaxed">
+                  {rowPendingDelete ? (
+                    <>
+                      WO Number <span className="font-mono text-gray-700 break-all">{rowPendingDelete.woNumber}</span> will
+                      be permanently removed.{' '}
+                    </>
+                  ) : (
+                    'This record will be permanently removed. '
+                  )}
+                  This action cannot be undone.
+                </p>
+                <footer className="flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={cancelDeleteRow}
+                    className="flex-1 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 px-4 py-2.5 rounded-lg transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmDeleteRow}
+                    className="flex-1 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 px-4 py-2.5 rounded-lg transition"
+                  >
+                    Delete
+                  </button>
+                </footer>
+              </article>
+            </aside>
+          );
+        })()}
     </main>
   );
 }

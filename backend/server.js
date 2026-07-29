@@ -2,15 +2,95 @@
 import express from 'express';
 import cors from 'cors';
 import { pool } from './db.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
+
+// ========== LOGGING UTILITY ==========
+const LOG_DIR = path.join(__dirname, 'logs');
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function logToFile(filename, message, data = null) {
+  const timestamp = new Date().toISOString();
+  let logEntry = `[${timestamp}] ${message}`;
+  if (data) {
+    logEntry += `\n${JSON.stringify(data, null, 2)}`;
+  }
+  logEntry += '\n';
+  const filePath = path.join(LOG_DIR, filename);
+  fs.appendFile(filePath, logEntry, (err) => {
+    if (err) console.error('Log write failed:', err);
+  });
+}
+
+// Server log
+logToFile('server.log', 'Server started');
+
+// ========== CLIENT LOG ENDPOINT ==========
+app.post('/api/log/client', (req, res) => {
+  const { level, message, data } = req.body;
+  const logMessage = `[CLIENT ${level}] ${message}`;
+  logToFile('client.log', logMessage, data);
+  res.json({ success: true });
+});
+
+// ========== EXTRACTED TEXT LOG ENDPOINTS ==========
+// Append extracted text (per page)
+app.post('/api/log/extracted-text', (req, res) => {
+  const { fileName, pages } = req.body;
+  if (!fileName || !pages || !Array.isArray(pages)) {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+  const timestamp = new Date().toISOString();
+  let logEntry = `\n--- ${timestamp} ---\nFILE: ${fileName}\n`;
+  pages.forEach((page) => {
+    logEntry += `\n--- PAGE ${page.pageIndex} ---\n${page.text}\n`;
+  });
+  logEntry += '\n';
+  const filePath = path.join(LOG_DIR, 'extracted_text.log');
+  fs.appendFile(filePath, logEntry, (err) => {
+    if (err) {
+      console.error('Failed to log extracted text:', err);
+      return res.status(500).json({ error: 'Log write failed' });
+    }
+    res.json({ success: true });
+  });
+});
+
+// Clear extracted text log (called on wipe history)
+app.delete('/api/log/extracted-text', (req, res) => {
+  const filePath = path.join(LOG_DIR, 'extracted_text.log');
+  fs.truncate(filePath, 0, (err) => {
+    if (err && err.code !== 'ENOENT') {
+      console.error('Failed to clear extracted text log:', err);
+      return res.status(500).json({ error: 'Failed to clear log' });
+    }
+    if (err && err.code === 'ENOENT') {
+      fs.writeFile(filePath, '', (writeErr) => {
+        if (writeErr) console.error('Failed to create empty log file:', writeErr);
+      });
+    }
+    res.json({ success: true });
+  });
+});
+
+// ========== API ROUTES ==========
 
 // 1. Fetch all records
 app.get('/api/bids', async (req, res) => {
+  logToFile('server.log', 'GET /api/bids');
   try {
     const result = await pool.query('SELECT * FROM extracted_bids ORDER BY created_at DESC');
     const bids = result.rows.map(row => ({
@@ -27,8 +107,10 @@ app.get('/api/bids', async (req, res) => {
       fileName: row.file_name,
       pageIndex: row.page_index
     }));
+    logToFile('server.log', `GET /api/bids - ${bids.length} records returned`);
     res.json(bids);
   } catch (err) {
+    logToFile('server.log', `GET /api/bids ERROR: ${err.message}`);
     console.error('Fetch error:', err);
     res.status(500).json({ error: 'Database fetch failed' });
   }
@@ -37,7 +119,10 @@ app.get('/api/bids', async (req, res) => {
 // 2. Save batch extractions
 app.post('/api/bids/bulk', async (req, res) => {
   const bids = req.body;
+  logToFile('server.log', `POST /api/bids/bulk - ${bids.length} records`);
+
   if (!Array.isArray(bids) || bids.length === 0) {
+    logToFile('server.log', 'POST /api/bids/bulk - Empty batch');
     return res.status(400).json({ error: 'Empty batch provided' });
   }
 
@@ -76,9 +161,11 @@ app.post('/api/bids/bulk', async (req, res) => {
     }
 
     await client.query('COMMIT');
+    logToFile('server.log', `POST /api/bids/bulk - ${bids.length} records saved`);
     res.json({ message: 'Saved successfully', count: bids.length });
   } catch (err) {
     await client.query('ROLLBACK');
+    logToFile('server.log', `POST /api/bids/bulk ERROR: ${err.message}`);
     console.error('Bulk insert error:', err);
     res.status(500).json({ error: 'Bulk insert failed' });
   } finally {
@@ -86,63 +173,75 @@ app.post('/api/bids/bulk', async (req, res) => {
   }
 });
 
-// 🤖 3. AI FALLBACK ENDPOINT FOR 100% PARSING ACCURACY
+// 3. AI Fallback
 app.post('/api/extract-fallback', async (req, res) => {
   const { text } = req.body;
-  const apiKey = process.env.GEMINI_API_KEY;
+  logToFile('server.log', 'POST /api/extract-fallback - AI fallback called');
+  const truncatedText = text ? text.substring(0, 3000) : '';
 
-  if (!apiKey) {
-    return res.status(500).json({ error: 'GEMINI_API_KEY is not configured in backend/.env' });
-  }
+  const prompt = `Extract these 4 exact fields from the contract text:
+1. woNumber: Contract/WO/GeM Number (e.g. GEMC-12345, WO-9988)
+2. woValue: Total Value with taxes (e.g. 48,12,345.00 or Rs. 500000)
+3. date: Contract Date (DD-MM-YYYY or DD-Mon-YYYY)
+4. ministry: Buyer Ministry / Organization Name
 
-  const prompt = `
-    You are an enterprise document parser specializing in Indian GeM, PSU (IOCL, Railways, Defence), and Commercial Work Order/Contract PDFs.
-    Extract these 4 exact fields from the provided document page text:
+If missing or unreadable, output "Not Found".
 
-    1. woNumber: Work Order / Contract / GEM Number (e.g., GEMC-5116877..., WO-12345, GEM/2024/...).
-    2. woValue: Total Contract Value including taxes (e.g., 48,12,345.00 or Rs. 5,00,000). Return numeric/formatted string.
-    3. date: Contract Generated / Issued Date (format as DD-MM-YYYY or DD-Mon-YYYY).
-    4. ministry: Buyer Ministry / Division / Organisation Name.
-
-    If a field is missing or ambiguous, output "Not Found".
-    Return strict JSON only in this schema:
-    {
-      "woNumber": "string",
-      "woValue": "string",
-      "date": "string",
-      "ministry": "string"
-    }
-
-    Text:
-    """
-    ${text}
-    """
-  `;
+Text:
+"""
+${truncatedText}
+"""`;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+    const response = await fetch('http://localhost:11434/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
+        model: 'qwen2.5-coder:1.5b',
+        prompt: prompt,
+        stream: false,
+        options: { temperature: 0.0 },
+        format: {
+          type: "object",
+          properties: {
+            woNumber: { type: "string" },
+            woValue: { type: "string" },
+            date: { type: "string" },
+            ministry: { type: "string" }
+          },
+          required: ["woNumber", "woValue", "date", "ministry"]
+        }
       })
     });
 
+    if (!response.ok) {
+      logToFile('server.log', `POST /api/extract-fallback - Ollama returned ${response.status}`);
+      return res.json({ woNumber: "Not Found", woValue: "Not Found", date: "Not Found", ministry: "Not Found" });
+    }
+
     const data = await response.json();
-    const rawJson = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    const parsed = JSON.parse(rawJson);
+    let rawText = data.response;
+
+    if (!rawText) {
+      logToFile('server.log', 'POST /api/extract-fallback - Empty response from Ollama');
+      return res.json({ woNumber: "Not Found", woValue: "Not Found", date: "Not Found", ministry: "Not Found" });
+    }
+
+    const parsed = typeof rawText === 'string' ? JSON.parse(rawText) : rawText;
+    logToFile('server.log', 'POST /api/extract-fallback - AI extracted successfully');
     res.json(parsed);
   } catch (err) {
-    console.error("AI Fallback execution error:", err);
-    res.status(500).json({ error: "AI extraction failed" });
+    logToFile('server.log', `POST /api/extract-fallback ERROR: ${err.message}`);
+    console.error("Ollama Local AI Fallback execution error:", err.message);
+    res.json({ woNumber: "Not Found", woValue: "Not Found", date: "Not Found", ministry: "Not Found" });
   }
 });
 
-// 4. Update single cell/field
+// 4. Update single cell
 app.put('/api/bids/:id', async (req, res) => {
   const { id } = req.params;
   const { field, value } = req.body;
+  logToFile('server.log', `PUT /api/bids/${id} - field: ${field}`);
 
   const columnMapping = {
     woNumber: 'wo_number',
@@ -160,8 +259,10 @@ app.put('/api/bids/:id', async (req, res) => {
 
   try {
     await pool.query(`UPDATE extracted_bids SET ${dbColumn} = $1 WHERE id = $2`, [value, id]);
+    logToFile('server.log', `PUT /api/bids/${id} - updated successfully`);
     res.json({ success: true });
   } catch (err) {
+    logToFile('server.log', `PUT /api/bids/${id} ERROR: ${err.message}`);
     console.error('Update error:', err);
     res.status(500).json({ error: 'Update failed' });
   }
@@ -169,10 +270,14 @@ app.put('/api/bids/:id', async (req, res) => {
 
 // 5. Delete single record
 app.delete('/api/bids/:id', async (req, res) => {
+  const { id } = req.params;
+  logToFile('server.log', `DELETE /api/bids/${id}`);
   try {
-    await pool.query('DELETE FROM extracted_bids WHERE id = $1', [req.params.id]);
+    await pool.query('DELETE FROM extracted_bids WHERE id = $1', [id]);
+    logToFile('server.log', `DELETE /api/bids/${id} - deleted`);
     res.json({ success: true });
   } catch (err) {
+    logToFile('server.log', `DELETE /api/bids/${id} ERROR: ${err.message}`);
     console.error('Delete error:', err);
     res.status(500).json({ error: 'Delete failed' });
   }
@@ -180,13 +285,26 @@ app.delete('/api/bids/:id', async (req, res) => {
 
 // 6. Wipe all history
 app.delete('/api/bids', async (req, res) => {
+  logToFile('server.log', 'DELETE /api/bids - Wiping all history');
   try {
     await pool.query('TRUNCATE TABLE extracted_bids');
+    // Also clear the extracted text log
+    const logFilePath = path.join(LOG_DIR, 'extracted_text.log');
+    fs.truncate(logFilePath, 0, (err) => {
+      if (err && err.code !== 'ENOENT') {
+        logToFile('server.log', `Failed to clear extracted_text.log: ${err.message}`);
+      }
+    });
+    logToFile('server.log', 'DELETE /api/bids - history wiped');
     res.json({ success: true });
   } catch (err) {
+    logToFile('server.log', `DELETE /api/bids ERROR: ${err.message}`);
     console.error('Truncate error:', err);
     res.status(500).json({ error: 'Wipe history failed' });
   }
 });
 
-app.listen(PORT, () => console.log(`PostgreSQL API listening on port ${PORT}`));
+app.listen(PORT, () => {
+  logToFile('server.log', `Server listening on port ${PORT}`);
+  console.log(`PostgreSQL API listening on port ${PORT}`);
+});
