@@ -15,8 +15,8 @@ import {
   Save,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { PDFDocument, degrees } from 'pdf-lib';
 import * as XLSX from 'xlsx';
+import { PDFDocument } from 'pdf-lib';   // <--- NEW: for page extraction
 
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -218,6 +218,37 @@ const sortExtractedData = (data) => {
   });
 };
 
+// ========== NEW: Helper to extract a page range from a PDF blob URL ==========
+async function extractPagesFromPdf(blobUrl, startPage, endPage) {
+  try {
+    const response = await fetch(blobUrl);
+    const existingPdfBytes = await response.arrayBuffer();
+
+    const pdfDoc = await PDFDocument.load(existingPdfBytes);
+    const totalPages = pdfDoc.getPageCount();
+
+    // Clamp to valid range
+    const from = Math.max(1, startPage) - 1; // 0‑based
+    const to = Math.min(totalPages, endPage) - 1;
+
+    if (from > to || from >= totalPages || to < 0) {
+      throw new Error('Invalid page range');
+    }
+
+    const pageIndices = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    const newPdf = await PDFDocument.create();
+    const copiedPages = await newPdf.copyPages(pdfDoc, pageIndices);
+    copiedPages.forEach((page) => newPdf.addPage(page));
+
+    const pdfBytes = await newPdf.save();
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    return URL.createObjectURL(blob);
+  } catch (error) {
+    console.error('Failed to extract page range:', error);
+    return null; // fallback to original
+  }
+}
+
 function EditableField({
   isEditing,
   editValue,
@@ -360,6 +391,7 @@ export default function Dashboard() {
   const fileInputRef = useRef(null);
   const activeTargetPageRef = useRef(null);
   const fileBlobsMapRef = useRef(new Map());
+  const filePageCountMapRef = useRef(new Map()); // NEW: store total pages per file
 
   // --- NEW: Reference for the table container ---
   const tableContainerRef = useRef(null);
@@ -412,7 +444,7 @@ export default function Dashboard() {
         try {
           const parsed = JSON.parse(savedData);
           setExtractedData(sortExtractedData(parsed));
-        } catch (e) { }
+        } catch (e) {}
       }
     } finally {
       setIsTableLoading(false);
@@ -568,23 +600,66 @@ export default function Dashboard() {
         clientLogger('error', 'Failed to clear history', { error: e.message });
       }
       fileBlobsMapRef.current.clear();
+      filePageCountMapRef.current.clear(); // NEW: clear page count map
       saveToLocalStorage([]);
     }
   };
 
-  // ----- PDF MODAL FUNCTIONS -----
-  const openPdfModal = (row) => {
+  // ----- PDF MODAL FUNCTIONS (modified) -----
+  const openPdfModal = async (row) => {
     const cachedUrl = fileBlobsMapRef.current.get(row.fileName);
-    if (cachedUrl) {
-      setModalRow(row);
-      setModalEditData({ ...row });
-      const pageParam = row.pageIndex ? `#page=${row.pageIndex}` : '';
-      setModalPdfUrl(cachedUrl + pageParam);
-      setIsPdfModalOpen(true);
-    } else {
+    if (!cachedUrl) {
       setPendingModalRow(row);
       if (fileInputRef.current) fileInputRef.current.click();
+      return;
     }
+
+    // ---- Compute page range ----
+    const totalPages = filePageCountMapRef.current.get(row.fileName) || 0;
+    if (totalPages === 0) {
+      // fallback: just jump to the page
+      setModalRow(row);
+      setModalEditData({ ...row });
+      setModalPdfUrl(cachedUrl + `#page=${row.pageIndex || 1}`);
+      setIsPdfModalOpen(true);
+      return;
+    }
+
+    // Find all records for this file
+    const fileRecords = extractedData
+      .filter((r) => r.fileName === row.fileName)
+      .sort((a, b) => (a.pageIndex || 1) - (b.pageIndex || 1));
+
+    const currentIndex = fileRecords.findIndex((r) => r.id === row.id);
+    if (currentIndex === -1) {
+      // fallback
+      setModalRow(row);
+      setModalEditData({ ...row });
+      setModalPdfUrl(cachedUrl + `#page=${row.pageIndex || 1}`);
+      setIsPdfModalOpen(true);
+      return;
+    }
+
+    const startPage = row.pageIndex || 1;
+    let endPage;
+    if (currentIndex < fileRecords.length - 1) {
+      // next record's page - 1
+      endPage = fileRecords[currentIndex + 1].pageIndex - 1;
+    } else {
+      endPage = totalPages;
+    }
+
+    // Ensure endPage is not less than startPage
+    if (endPage < startPage) endPage = startPage;
+
+    // ---- Extract the pages ----
+    const pageUrl = await extractPagesFromPdf(cachedUrl, startPage, endPage);
+    const finalUrl = pageUrl || cachedUrl + `#page=${startPage}`; // fallback
+
+    setModalRow(row);
+    setModalEditData({ ...row });
+    setModalPdfUrl(finalUrl);
+    setIsPdfModalOpen(true);
   };
 
   const closePdfModal = () => {
@@ -639,11 +714,8 @@ export default function Dashboard() {
     if (pendingModalRow) {
       const row = pendingModalRow;
       setPendingModalRow(null);
-      setModalRow(row);
-      setModalEditData({ ...row });
-      const pageParam = row.pageIndex ? `#page=${row.pageIndex}` : '';
-      setModalPdfUrl(fileBlobUrl + pageParam);
-      setIsPdfModalOpen(true);
+      // call openPdfModal again – now it will have the cached URL
+      openPdfModal(row);
     } else {
       const targetPage = activeTargetPageRef.current || 1;
       window.open(`${fileBlobUrl}#page=${targetPage}`, '_blank', 'noopener,noreferrer');
@@ -686,6 +758,8 @@ export default function Dashboard() {
           pdf = await loadingTask.promise;
 
           const totalPages = pdf.numPages;
+          filePageCountMapRef.current.set(file.name, totalPages); // NEW: store total pages
+
           const fileBlobUrl = URL.createObjectURL(file);
           fileBlobsMapRef.current.set(file.name, fileBlobUrl);
 
@@ -944,12 +1018,12 @@ export default function Dashboard() {
           if (pdf) {
             try {
               await pdf.destroy();
-            } catch (e) { }
+            } catch (e) {}
           }
           if (loadingTask) {
             try {
               await loadingTask.destroy();
-            } catch (e) { }
+            } catch (e) {}
           }
         }
       };
@@ -1248,8 +1322,9 @@ export default function Dashboard() {
                 .map((vendor) => (
                   <li key={vendor}>
                     <label
-                      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${isBulkProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
-                        }`}
+                      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${
+                        isBulkProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                      }`}
                     >
                       <div className="flex items-center space-x-3">
                         <input
@@ -1319,10 +1394,10 @@ export default function Dashboard() {
           )}
         </header>
 
-        {/* --- MODIFIED: added ref and increased max-h --- */}
+        {/* Table container with max-h-[80vh] and overflow */}
         <div
           ref={tableContainerRef}
-          className="overflow-x-auto overflow-y-auto h-[80vh]"
+          className="overflow-x-auto overflow-y-auto max-h-[80vh]"
         >
           <table className="w-full text-left border-collapse relative">
             <thead className="sticky top-0 z-20 bg-gray-100 border-b border-gray-200 shadow-sm">
@@ -1454,8 +1529,9 @@ export default function Dashboard() {
                               onCancel={cancelEditingCell}
                               displayContent={
                                 <span
-                                  className={`font-semibold break-words ${isBelowR1Threshold ? 'text-red-600' : 'text-emerald-700'
-                                    }`}
+                                  className={`font-semibold break-words ${
+                                    isBelowR1Threshold ? 'text-red-600' : 'text-emerald-700'
+                                  }`}
                                 >
                                   {row.woValue}
                                 </span>
@@ -1539,26 +1615,29 @@ export default function Dashboard() {
                             {showRuleCheck && (
                               <div className="inline-flex items-center space-x-1">
                                 <span
-                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R1
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
+                                    ruleCheckResult.R1
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : 'bg-red-50 text-red-600 border-red-200'
-                                    }`}
+                                  }`}
                                 >
                                   R1
                                 </span>
                                 <span
-                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R2
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
+                                    ruleCheckResult.R2
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : 'bg-red-50 text-red-600 border-red-200'
-                                    }`}
+                                  }`}
                                 >
                                   R2
                                 </span>
                                 <span
-                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R3
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
+                                    ruleCheckResult.R3
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : 'bg-red-50 text-red-600 border-red-200'
-                                    }`}
+                                  }`}
                                 >
                                   R3
                                 </span>
