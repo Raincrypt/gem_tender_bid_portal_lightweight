@@ -22,26 +22,47 @@ import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 import {
+  API_ENDPOINTS,
+  LOCAL_STORAGE_HISTORY_KEY,
+  POSTGRES_CHUNK_SIZE,
+  BULK_PROCESS_THROTTLE_MS,
   DATE_VERIFICATION_CUTOFF,
   VALID_MINISTRIES,
   VALID_MINISTRY_KEYWORDS,
   CURRENCY_LOCALE,
   CURRENCY_SYMBOL,
   DATE_DISPLAY_FORMAT,
-  RULE_CHECK_R1_MIN_COUNT,
-  RULE_CHECK_R1_THRESHOLD,
-  RULE_CHECK_R2_MIN_COUNT,
-  RULE_CHECK_R2_THRESHOLD,
-  RULE_CHECK_R3_MIN_COUNT,
-  RULE_CHECK_R3_THRESHOLD,
+  RULE_CHECK_TIERS,
+  IOCL_DETECTION_MARKERS,
+  IOCL_WORK_ORDER_MARKER,
+  IOCL_GEMC_EXCLUSION_MARKER,
+  IOCL_DEFAULT_MINISTRY,
+  IOCL_WO_NUMBER_PATTERN,
+  IOCL_WO_VALUE_PATTERNS,
+  IOCL_WO_VALUE_FALLBACK_PATTERN,
+  IOCL_DATE_PATTERNS,
+  NEW_CONTRACT_START_PATTERN,
+  WO_NUMBER_PATTERNS,
+  WO_NUMBER_LABEL_STRIP_PATTERN,
+  DATE_LABEL_PATTERNS,
+  DATE_ANCHOR_SEARCH_PATTERN,
+  DATE_FALLBACK_SNIPPET_WINDOW,
+  DATE_FALLBACK_PATTERNS,
+  WO_VALUE_TIER1_PATTERN,
+  WO_VALUE_TIER2_PATTERN,
+  WO_VALUE_MIN_DIGIT_LENGTH,
+  WO_VALUE_ANCHOR_SEARCH_PATTERN,
+  WO_VALUE_CONTEXT_WINDOW,
+  WO_VALUE_FALLBACK_PATTERN,
+  MINISTRY_PATTERNS,
+  ORGANISATION_NAME_PATTERN,
+  MINISTRY_KEYWORD_RULES,
 } from '../config/config';
-
-const API_BASE_URL = 'http://localhost:5000/api/bids';
 
 // ========== CLIENT LOGGER ==========
 async function clientLogger(level, message, data = null) {
   try {
-    await fetch('http://localhost:5000/api/log/client', {
+    await fetch(API_ENDPOINTS.logClient, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ level, message, data }),
@@ -54,7 +75,7 @@ async function clientLogger(level, message, data = null) {
 // ========== EXTRACTED TEXT LOGGER (per page) ==========
 async function logExtractedText(fileName, pages) {
   try {
-    await fetch('http://localhost:5000/api/log/extracted-text', {
+    await fetch(API_ENDPOINTS.logExtractedText, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fileName, pages }),
@@ -150,16 +171,13 @@ const parseCurrencyToNumber = (valueStr) => {
 };
 
 const evaluateRuleCheck = (values) => {
-  const meetsR1 = values.filter((v) => v > RULE_CHECK_R1_THRESHOLD).length >= RULE_CHECK_R1_MIN_COUNT;
-  const meetsR2 = values.filter((v) => v > RULE_CHECK_R2_THRESHOLD).length >= RULE_CHECK_R2_MIN_COUNT;
-  const meetsR3 = values.filter((v) => v > RULE_CHECK_R3_THRESHOLD).length >= RULE_CHECK_R3_MIN_COUNT;
-
-  return {
-    R1: meetsR1,
-    R2: meetsR2,
-    R3: meetsR3,
-    satisfied: meetsR1 || meetsR2 || meetsR3,
-  };
+  const result = { satisfied: false };
+  RULE_CHECK_TIERS.forEach((tier) => {
+    const meetsTier = values.filter((v) => v > tier.threshold).length >= tier.minCount;
+    result[tier.id] = meetsTier;
+    if (meetsTier) result.satisfied = true;
+  });
+  return result;
 };
 
 const computeRuleCheckByVendor = (data) => {
@@ -429,17 +447,17 @@ export default function Dashboard() {
   const fetchFromPostgres = async () => {
     setIsTableLoading(true);
     try {
-      const res = await fetch(API_BASE_URL);
+      const res = await fetch(API_ENDPOINTS.bids);
       if (!res.ok) throw new Error('API request failed');
       const data = await res.json();
       const sorted = sortExtractedData(data);
       setExtractedData(sorted);
-      localStorage.setItem('gem_portal_history', JSON.stringify(sorted));
+      localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(sorted));
       clientLogger('info', 'Fetched data from PostgreSQL', { count: data.length });
     } catch (err) {
       console.warn('PostgreSQL server offline, falling back to LocalStorage history:', err);
       clientLogger('warn', 'PostgreSQL fetch failed, using localStorage', { error: err.message });
-      const savedData = localStorage.getItem('gem_portal_history');
+      const savedData = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
       if (savedData) {
         try {
           const parsed = JSON.parse(savedData);
@@ -454,14 +472,14 @@ export default function Dashboard() {
   const saveToLocalStorage = (newData) => {
     const sorted = sortExtractedData(newData);
     setExtractedData(sorted);
-    localStorage.setItem('gem_portal_history', JSON.stringify(sorted));
+    localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(sorted));
   };
 
-  const saveToPostgresInChunks = async (records, chunkSize = 100) => {
+  const saveToPostgresInChunks = async (records, chunkSize = POSTGRES_CHUNK_SIZE) => {
     for (let i = 0; i < records.length; i += chunkSize) {
       const chunk = records.slice(i, i + chunkSize);
       try {
-        await fetch(`${API_BASE_URL}/bulk`, {
+        await fetch(`${API_ENDPOINTS.bids}/bulk`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(chunk),
@@ -554,7 +572,7 @@ export default function Dashboard() {
     const { rowId, field } = editingCell;
 
     try {
-      await fetch(`${API_BASE_URL}/${rowId}`, {
+      await fetch(`${API_ENDPOINTS.bids}/${rowId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ field, value: editValue }),
@@ -577,7 +595,7 @@ export default function Dashboard() {
   const confirmDeleteRow = async () => {
     if (!deleteConfirmRowId) return;
     try {
-      await fetch(`${API_BASE_URL}/${deleteConfirmRowId}`, { method: 'DELETE' });
+      await fetch(`${API_ENDPOINTS.bids}/${deleteConfirmRowId}`, { method: 'DELETE' });
       clientLogger('info', `Deleted row ${deleteConfirmRowId}`);
     } catch (e) {
       console.warn('Database delete sync failed, updating locally:', e);
@@ -592,8 +610,8 @@ export default function Dashboard() {
   const clearHistory = async () => {
     if (window.confirm('Are you sure you want to completely wipe all database and local records?')) {
       try {
-        await fetch(API_BASE_URL, { method: 'DELETE' });
-        await fetch('http://localhost:5000/api/log/extracted-text', { method: 'DELETE' });
+        await fetch(API_ENDPOINTS.bids, { method: 'DELETE' });
+        await fetch(API_ENDPOINTS.logExtractedText, { method: 'DELETE' });
         clientLogger('info', 'Cleared all history and extracted text log');
       } catch (e) {
         console.warn('Database truncate request failed:', e);
@@ -681,7 +699,7 @@ export default function Dashboard() {
     for (const [field, value] of Object.entries(updatedFields)) {
       if (value !== modalRow[field]) {
         try {
-          await fetch(`${API_BASE_URL}/${rowId}`, {
+          await fetch(`${API_ENDPOINTS.bids}/${rowId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ field, value }),
@@ -729,7 +747,7 @@ export default function Dashboard() {
 
   const callAiFallback = async (pageText) => {
     try {
-      const res = await fetch('http://localhost:5000/api/extract-fallback', {
+      const res = await fetch(API_ENDPOINTS.extractFallback, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: pageText }),
@@ -781,39 +799,37 @@ export default function Dashboard() {
           let localRecords = [];
 
           const isIOCLDocument =
-            globalText.includes('INDIAN OIL') ||
-            globalText.includes('Haldia Refinery') ||
-            (globalText.includes('Work Order') && !globalText.includes('GEMC'));
+            globalText.includes(IOCL_DETECTION_MARKERS[0]) ||
+            globalText.includes(IOCL_DETECTION_MARKERS[1]) ||
+            (globalText.includes(IOCL_WORK_ORDER_MARKER) && !globalText.includes(IOCL_GEMC_EXCLUSION_MARKER));
 
           if (isIOCLDocument) {
             let woNumber = 'Not Found',
               woValue = 'Not Found',
               date = 'Not Found',
-              ministry = 'INDIAN OIL CORPORATION LIMITED, Haldia Refinery';
+              ministry = IOCL_DEFAULT_MINISTRY;
 
-            const woMatch = globalText.match(
-              /(?:Work Order Number|Work Order No|Work Order No\.|WO No|WO Number)[:\s]*([0-9/A-Z\-]+)/i
-            );
+            const woMatch = globalText.match(IOCL_WO_NUMBER_PATTERN);
             if (woMatch) woNumber = woMatch[1].trim();
 
             const valueMatch =
-              globalText.match(/Rs\.\s*([\d,]+(?:\.\d{1,2})?)\s*including GST/i) ||
-              globalText.match(/Executed Value of the Contract:\s*Rs\.?\s*([\d,]+(?:\.\d{1,2})?)/i) ||
-              globalText.match(/(?:Rs\.?\s*)([\d,]{5,}(?:\.\d{1,2})?)/i);
+              globalText.match(IOCL_WO_VALUE_PATTERNS[0]) ||
+              globalText.match(IOCL_WO_VALUE_PATTERNS[1]) ||
+              globalText.match(IOCL_WO_VALUE_PATTERNS[2]);
 
             if (valueMatch) {
               woValue = 'Rs. ' + valueMatch[1].trim() + ' including GST';
             } else {
-              const fallbackNumMatch = globalText.match(/[\d]{1,3}(?:,[\d]{2,3})+(?:\.[\d]{2})?/);
+              const fallbackNumMatch = globalText.match(IOCL_WO_VALUE_FALLBACK_PATTERN);
               if (fallbackNumMatch) {
                 woValue = 'Rs. ' + fallbackNumMatch[0].trim() + ' including GST';
               }
             }
 
             const dateMatch =
-              globalText.match(/(?:of Commencement|Date of Issue|WO Date)[:\s]*([0-9.]+)/i) ||
-              globalText.match(/(?:Date|Dated)[:\s]*([0-9.]+)/i) ||
-              globalText.match(/\d{2}\.\d{2}\.\d{4}/);
+              globalText.match(IOCL_DATE_PATTERNS[0]) ||
+              globalText.match(IOCL_DATE_PATTERNS[1]) ||
+              globalText.match(IOCL_DATE_PATTERNS[2]);
             if (dateMatch) date = dateMatch[0].trim();
 
             localRecords.push({
@@ -831,8 +847,7 @@ export default function Dashboard() {
 
             for (let pageObj of filePagesData) {
               const pageStr = pageObj.text;
-              const isNewContractStart =
-                /(?:Contract No|अनुबंध क्रमांक|GEMC|Work Order No|Sanction No|Order No|PO No|GEM[\/])/i.test(pageStr);
+              const isNewContractStart = NEW_CONTRACT_START_PATTERN.test(pageStr);
 
               if (isNewContractStart || (!currentRecord && localRecords.length === 0)) {
                 if (currentRecord) localRecords.push(currentRecord);
@@ -852,40 +867,31 @@ export default function Dashboard() {
               if (currentRecord) {
                 if (currentRecord.woNumber === 'Not Found') {
                   const woMatch =
-                    pageStr.match(/GEMC\s*[-–—]?\s*[\w\-]+/i) ||
-                    pageStr.match(/GEM\s*[\/\-]\s*\d+[\/\-A-Z0-9\-_]+/i) ||
-                    pageStr.match(
-                      /(?:Contract No|Work Order No|Order No|PO No|Sanction No|अनुबंध क्रमांक|GEM[- ]?No|Bid Number)[:\s|]*([A-Z0-9\/\-_]{5,})/i
-                    );
+                    pageStr.match(WO_NUMBER_PATTERNS[0]) ||
+                    pageStr.match(WO_NUMBER_PATTERNS[1]) ||
+                    pageStr.match(WO_NUMBER_PATTERNS[2]);
                   if (woMatch) {
                     const extractedWo = woMatch[1] || woMatch[0];
                     currentRecord.woNumber = extractedWo
-                      .replace(
-                        /^(?:Contract No|Work Order No|Order No|PO No|Sanction No|अनुबंध क्रमांक|GEM[- ]?No|Bid Number)[:\s|]*/i,
-                        ''
-                      )
+                      .replace(WO_NUMBER_LABEL_STRIP_PATTERN, '')
                       .trim();
                   }
                 }
 
                 if (currentRecord.date === 'Not Found') {
                   const dateMatch =
-                    pageStr.match(
-                      /(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9]{2}-[A-Za-z]{3}-[0-9]{4})/i
-                    ) ||
-                    pageStr.match(
-                      /(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9]{2}[-/.]\d{2}[-/.]\d{4})/i
-                    ) ||
-                    pageStr.match(/(?:Contract Generated Date|अनुबंध तिथि|Dated|Date)[:\s\]|]*([0-9A-Za-z\-./]{10,12})/i);
+                    pageStr.match(DATE_LABEL_PATTERNS[0]) ||
+                    pageStr.match(DATE_LABEL_PATTERNS[1]) ||
+                    pageStr.match(DATE_LABEL_PATTERNS[2]);
 
                   if (dateMatch && dateMatch[1] && /\d/.test(dateMatch[1])) {
                     currentRecord.date = dateMatch[1].trim().replace(/[\]|]/g, '');
                   } else {
-                    const dateAnchorIndex = pageStr.search(/(?:Generated Date|अनुबंध तिथि|Dated)/i);
+                    const dateAnchorIndex = pageStr.search(DATE_ANCHOR_SEARCH_PATTERN);
                     if (dateAnchorIndex !== -1) {
-                      const localSnippet = pageStr.substring(dateAnchorIndex, dateAnchorIndex + 120);
+                      const localSnippet = pageStr.substring(dateAnchorIndex, dateAnchorIndex + DATE_FALLBACK_SNIPPET_WINDOW);
                       const fallbackDate =
-                        localSnippet.match(/\d{2}-[A-Za-z]{3}-\d{4}/) || localSnippet.match(/\d{2}[-/.]\d{2}[-/.]\d{4}/);
+                        localSnippet.match(DATE_FALLBACK_PATTERNS[0]) || localSnippet.match(DATE_FALLBACK_PATTERNS[1]);
                       if (fallbackDate) {
                         currentRecord.date = fallbackDate[0].trim();
                       }
@@ -894,31 +900,23 @@ export default function Dashboard() {
                 }
 
                 if (currentRecord.woValue === 'Not Found') {
-                  const tier1Match = pageStr.match(
-                    /(?:Total\s*Contract\s*Value\s*Including\s*All\s*Duties\s*and\s*Taxes(?:\s*\(\s*INR\s*\))?|सभी\s*शुल्क\s*और\s*करों\s*सहित\s*कुल\s*अनुबंध\s*मूल्य)[:\s|]*([0-9](?:[0-9.,]|\s(?=[0-9.,]))*[0-9])/i
-                  );
+                  const tier1Match = pageStr.match(WO_VALUE_TIER1_PATTERN);
 
-                  if (tier1Match && tier1Match[1].replace(/[^0-9]/g, '').length >= 4) {
+                  if (tier1Match && tier1Match[1].replace(/[^0-9]/g, '').length >= WO_VALUE_MIN_DIGIT_LENGTH) {
                     currentRecord.woValue = '₹ ' + tier1Match[1].replace(/\s+/g, '').trim();
                   } else {
-                    const tier2Match = pageStr.match(
-                      /(?:Total\s*Amount\s*Including\s*All\s*Duties\s*and\s*Taxes\s*in\s*INR)[:\s|]*([0-9](?:[0-9.,]|\s(?=[0-9.,]))*[0-9])/i
-                    );
+                    const tier2Match = pageStr.match(WO_VALUE_TIER2_PATTERN);
 
-                    if (tier2Match && tier2Match[1].replace(/[^0-9]/g, '').length >= 4) {
+                    if (tier2Match && tier2Match[1].replace(/[^0-9]/g, '').length >= WO_VALUE_MIN_DIGIT_LENGTH) {
                       currentRecord.woValue = '₹ ' + tier2Match[1].replace(/\s+/g, '').trim();
                     } else {
-                      const valueAnchorIndex = pageStr.search(
-                        /(?:Duties and Taxes|कुल अनुबंध मूल्य|Contract Value|Original Value|Total Amount|Order Value)/i
-                      );
+                      const valueAnchorIndex = pageStr.search(WO_VALUE_ANCHOR_SEARCH_PATTERN);
                       if (valueAnchorIndex !== -1) {
-                        const contextWindowSnippet = pageStr.substring(valueAnchorIndex, valueAnchorIndex + 200);
-                        const fallbackNumMatch = contextWindowSnippet.match(
-                          /[0-9](?:[0-9,]|\s(?=[0-9,]))*(?:\s?\.\s?[0-9]+)?/
-                        );
+                        const contextWindowSnippet = pageStr.substring(valueAnchorIndex, valueAnchorIndex + WO_VALUE_CONTEXT_WINDOW);
+                        const fallbackNumMatch = contextWindowSnippet.match(WO_VALUE_FALLBACK_PATTERN);
                         if (fallbackNumMatch) {
                           const cleanedFallback = fallbackNumMatch[0].replace(/\s+/g, '');
-                          if (cleanedFallback.replace(/[^0-9]/g, '').length >= 4) {
+                          if (cleanedFallback.replace(/[^0-9]/g, '').length >= WO_VALUE_MIN_DIGIT_LENGTH) {
                             currentRecord.woValue = '₹ ' + cleanedFallback.trim();
                           }
                         }
@@ -929,27 +927,19 @@ export default function Dashboard() {
 
                 if (currentRecord.ministry === 'Not Found') {
                   const ministryMatch =
-                    pageStr.match(/Ministry\s?of\s?([A-Za-z\s]{3,40})(?=\s?Department|\s?महानिदेशालय|\s?\||$)/i) ||
-                    pageStr.match(/Ministry\s?of\s?([A-Za-z\s]{3,40})/i) ||
-                    pageStr.match(
-                      /(?:Organization Details|संगठन विवरण|Buyer Details)[:\s|]*Ministry\s?of\s?([A-Za-z\s]{3,40})/i
-                    );
+                    pageStr.match(MINISTRY_PATTERNS[0]) ||
+                    pageStr.match(MINISTRY_PATTERNS[1]) ||
+                    pageStr.match(MINISTRY_PATTERNS[2]);
 
                   if (ministryMatch && ministryMatch[1]) {
                     currentRecord.ministry = 'Ministry of ' + ministryMatch[1].trim();
                   } else {
-                    const orgMatch = pageStr.match(
-                      /(?:Organisation Name|संगठन का नाम)[:\s|]*([A-Za-z\s]{4,40})(?=\s?Type|\||$)/i
-                    );
+                    const orgMatch = pageStr.match(ORGANISATION_NAME_PATTERN);
                     if (orgMatch && orgMatch[1] && !/Not Found/i.test(orgMatch[1])) {
                       currentRecord.ministry = orgMatch[1].trim();
                     } else {
-                      if (/Defence|Defense/i.test(pageStr)) currentRecord.ministry = 'Ministry of Defence';
-                      else if (/Finance/i.test(pageStr)) currentRecord.ministry = 'Ministry of Finance';
-                      else if (/Railways/i.test(pageStr)) currentRecord.ministry = 'Ministry of Railways';
-                      else if (/Textiles/i.test(pageStr)) currentRecord.ministry = 'Ministry of Textiles';
-                      else if (/Communications/i.test(pageStr)) currentRecord.ministry = 'Ministry of Communications';
-                      else if (/Labour/i.test(pageStr)) currentRecord.ministry = 'Ministry of Labour and Employment';
+                      const matchedKeywordRule = MINISTRY_KEYWORD_RULES.find((rule) => rule.pattern.test(pageStr));
+                      if (matchedKeywordRule) currentRecord.ministry = matchedKeywordRule.ministry;
                     }
                   }
                 }
@@ -1078,7 +1068,7 @@ export default function Dashboard() {
         }
 
         if (index % 3 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 30));
+          await new Promise((resolve) => setTimeout(resolve, BULK_PROCESS_THROTTLE_MS));
         }
       } catch (error) {
         console.error(`Error parsing file ${currentFile.name}:`, error);
@@ -1199,7 +1189,7 @@ export default function Dashboard() {
         }
 
         if (idx % 3 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 30));
+          await new Promise((resolve) => setTimeout(resolve, BULK_PROCESS_THROTTLE_MS));
         }
       } catch (err) {
         console.error(`Failed to process "${file.name}" (vendor: ${vendor})`, err);
@@ -1473,7 +1463,9 @@ export default function Dashboard() {
                     const isCellEditing = (field) => editingCell?.rowId === row.id && editingCell?.field === field;
 
                     const woValueNumeric = parseCurrencyToNumber(row.woValue);
-                    const isBelowR1Threshold = woValueNumeric !== null && woValueNumeric < RULE_CHECK_R1_THRESHOLD;
+                    const isBelowR1Threshold =
+                    woValueNumeric !== null &&
+                    woValueNumeric < RULE_CHECK_TIERS.find((tier) => tier.id === 'R1').threshold;
 
                     const ruleCheckResult = row.vendorFolder
                       ? ruleCheckByVendor[row.vendorFolder] || { R1: false, R2: false, R3: false }
