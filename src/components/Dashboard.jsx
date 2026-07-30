@@ -15,6 +15,7 @@ import {
   Save,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { PDFDocument, degrees } from 'pdf-lib';
 import * as XLSX from 'xlsx';
 
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
@@ -360,6 +361,9 @@ export default function Dashboard() {
   const activeTargetPageRef = useRef(null);
   const fileBlobsMapRef = useRef(new Map());
 
+  // --- NEW: Reference for the table container ---
+  const tableContainerRef = useRef(null);
+
   const folderInputRef = useRef(null);
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [rawFolderFiles, setRawFolderFiles] = useState([]);
@@ -377,6 +381,18 @@ export default function Dashboard() {
   useEffect(() => {
     fetchFromPostgres();
   }, []);
+
+  // --- NEW: Auto‑scroll to bottom whenever data changes ---
+  useEffect(() => {
+    if (tableContainerRef.current) {
+      requestAnimationFrame(() => {
+        tableContainerRef.current.scrollTop = tableContainerRef.current.scrollHeight;
+      });
+    }
+  }, [extractedData]);
+
+  // ----- Rest of the component (fetchFromPostgres, saveToLocalStorage, etc.) remains unchanged -----
+  // ... (all other functions like fetchFromPostgres, saveToPostgresInChunks, exportToExcel, etc. are exactly as in the original file)
 
   const fetchFromPostgres = async () => {
     setIsTableLoading(true);
@@ -396,7 +412,7 @@ export default function Dashboard() {
         try {
           const parsed = JSON.parse(savedData);
           setExtractedData(sortExtractedData(parsed));
-        } catch (e) {}
+        } catch (e) { }
       }
     } finally {
       setIsTableLoading(false);
@@ -545,7 +561,6 @@ export default function Dashboard() {
     if (window.confirm('Are you sure you want to completely wipe all database and local records?')) {
       try {
         await fetch(API_BASE_URL, { method: 'DELETE' });
-        // Also clear the extracted text log
         await fetch('http://localhost:5000/api/log/extracted-text', { method: 'DELETE' });
         clientLogger('info', 'Cleared all history and extracted text log');
       } catch (e) {
@@ -687,7 +702,6 @@ export default function Dashboard() {
             page.cleanup();
           }
 
-          // ✅ LOG EXTRACTED TEXT PER PAGE (not concatenated)
           await logExtractedText(file.name, filePagesData.map(p => ({ pageIndex: p.index, text: p.text })));
 
           let localRecords = [];
@@ -930,12 +944,12 @@ export default function Dashboard() {
           if (pdf) {
             try {
               await pdf.destroy();
-            } catch (e) {}
+            } catch (e) { }
           }
           if (loadingTask) {
             try {
               await loadingTask.destroy();
-            } catch (e) {}
+            } catch (e) { }
           }
         }
       };
@@ -1234,9 +1248,8 @@ export default function Dashboard() {
                 .map((vendor) => (
                   <li key={vendor}>
                     <label
-                      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${
-                        isBulkProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
-                      }`}
+                      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${isBulkProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+                        }`}
                     >
                       <div className="flex items-center space-x-3">
                         <input
@@ -1306,7 +1319,11 @@ export default function Dashboard() {
           )}
         </header>
 
-        <div className="overflow-x-auto max-h-[75vh]">
+        {/* --- MODIFIED: added ref and increased max-h --- */}
+        <div
+          ref={tableContainerRef}
+          className="overflow-x-auto overflow-y-auto h-[80vh]"
+        >
           <table className="w-full text-left border-collapse relative">
             <thead className="sticky top-0 z-20 bg-gray-100 border-b border-gray-200 shadow-sm">
               <tr className="text-xs font-semibold uppercase tracking-wider text-gray-600">
@@ -1437,9 +1454,8 @@ export default function Dashboard() {
                               onCancel={cancelEditingCell}
                               displayContent={
                                 <span
-                                  className={`font-semibold break-words ${
-                                    isBelowR1Threshold ? 'text-red-600' : 'text-emerald-700'
-                                  }`}
+                                  className={`font-semibold break-words ${isBelowR1Threshold ? 'text-red-600' : 'text-emerald-700'
+                                    }`}
                                 >
                                   {row.woValue}
                                 </span>
@@ -1523,29 +1539,26 @@ export default function Dashboard() {
                             {showRuleCheck && (
                               <div className="inline-flex items-center space-x-1">
                                 <span
-                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
-                                    ruleCheckResult.R1
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R1
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : 'bg-red-50 text-red-600 border-red-200'
-                                  }`}
+                                    }`}
                                 >
                                   R1
                                 </span>
                                 <span
-                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
-                                    ruleCheckResult.R2
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R2
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : 'bg-red-50 text-red-600 border-red-200'
-                                  }`}
+                                    }`}
                                 >
                                   R2
                                 </span>
                                 <span
-                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
-                                    ruleCheckResult.R3
+                                  className={`px-1.5 py-0.5 rounded text-xs font-bold border ${ruleCheckResult.R3
                                       ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                       : 'bg-red-50 text-red-600 border-red-200'
-                                  }`}
+                                    }`}
                                 >
                                   R3
                                 </span>
