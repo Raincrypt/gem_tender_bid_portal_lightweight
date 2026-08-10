@@ -62,12 +62,16 @@ app.post('/api/log/client', (req, res) => {
 // ========== EXTRACTED TEXT LOG ENDPOINTS ==========
 // Append extracted text (per page)
 app.post('/api/log/extracted-text', (req, res) => {
-  const { fileName, pages } = req.body;
+  const { fileName, pages, vendorName, vendor } = req.body;
   if (!fileName || !pages || !Array.isArray(pages)) {
     return res.status(400).json({ error: 'Invalid payload' });
   }
+  const vendorDisplay = vendorName || vendor || null;
   const timestamp = new Date().toISOString();
   let logEntry = `\n--- ${timestamp} ---\nFILE: ${fileName}\n`;
+  if (vendorDisplay) {
+    logEntry += `VENDOR: ${vendorDisplay}\n`;
+  }
   pages.forEach((page) => {
     logEntry += `\n--- PAGE ${page.pageIndex} ---\n${page.text}\n`;
   });

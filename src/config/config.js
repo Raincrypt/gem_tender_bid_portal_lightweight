@@ -166,7 +166,7 @@ export const IOCL_GEMC_EXCLUSION_MARKER = 'GEMC';
 
 export const IOCL_DEFAULT_MINISTRY = 'INDIAN OIL CORPORATION LIMITED, Haldia Refinery';
 
-export const IOCL_WO_NUMBER_PATTERN = /(?:Work Order Number|Work Order No|Work Order No\.|WO No|WO Number)[:\s]*([0-9/A-Z\-]+)/i;
+export const IOCL_WO_NUMBER_PATTERN = /(?:Work Order Number|Work Order No|Work Order No\.|WO No|WO Number)[:\s]*([0-9/A-Z-]+)/i;
 
 // Tried in order; first match wins.
 export const IOCL_WO_VALUE_PATTERNS = [
@@ -185,14 +185,14 @@ export const IOCL_DATE_PATTERNS = [
 
 // --- Standard GeM Document Extraction ---
 // A page starts a new contract record if it matches this pattern.
-export const NEW_CONTRACT_START_PATTERN = /(?:Contract No|अनुबंध क्रमांक|GEMC|Work Order No|Sanction No|Order No|PO No|GEM[\/])/i;
+export const NEW_CONTRACT_START_PATTERN = /(?:Contract No|अनुबंध क्रमांक|GEMC|Work Order No|Sanction No|Order No|PO No|GEM[/])/i;
 
 // Tried in order; first match wins. Capture group 1 is used when
 // present, otherwise the full match (group 0).
 export const WO_NUMBER_PATTERNS = [
-  /GEMC\s*[-–—]?\s*[\w\-]+/i,
-  /GEM\s*[\/\-]\s*\d+[\/\-A-Z0-9\-_]+/i,
-  /(?:Contract No|Work Order No|Order No|PO No|Sanction No|अनुबंध क्रमांक|GEM[- ]?No|Bid Number)[:\s|]*([A-Z0-9\/\-_]{5,})/i,
+  /GEMC\s*[-–—]?\s*[\w-]+/i,
+  /GEM\s*[|/-]\s*\d+[|/A-Z0-9_-]+/i,
+  /(?:Contract No|Work Order No|Order No|PO No|Sanction No|अनुबंध क्रमांक|GEM[- ]?No|Bid Number)[:\s|]*([A-Z0-9/_-]{5,})/i,
 ];
 // Strips the label prefix left behind when the 3rd pattern's full
 // match (rather than its capture group) is used.

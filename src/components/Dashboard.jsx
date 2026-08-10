@@ -1,18 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   UploadCloud,
   FileText,
   ExternalLink,
   RefreshCw,
   Download,
-  Layers,
   FolderOpen,
   Building2,
   ListChecks,
   Pencil,
   Trash2,
-  X,
-  Save,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
@@ -69,20 +66,20 @@ async function clientLogger(level, message, data = null) {
       body: JSON.stringify({ level, message, data }),
     });
   } catch (err) {
-    // Silently fail; we don't want logging to break the app
+    console.warn('Client logger fetch failed:', err.message);
   }
 }
 
 // ========== EXTRACTED TEXT LOGGER (per page) ==========
-async function logExtractedText(fileName, pages) {
+async function logExtractedText(fileName, pages, vendorName = null) {
   try {
     await fetch(API_ENDPOINTS.logExtractedText, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileName, pages }),
+      body: JSON.stringify({ fileName, pages, vendorName }),
     });
   } catch (err) {
-    // Silent fail
+    console.warn('Extracted text log fetch failed:', err.message);
   }
 }
 
@@ -304,7 +301,7 @@ function EditableField({
         <button
           type="button"
           onClick={onStartEdit}
-          className="absolute -top-3 right-0 p-1 text-gray-400 hover:text-blue-600 bg-white border border-gray-200 rounded shadow-sm opacity-0 group-hover/field:opacity-100 transition z-10"
+          className="absolute -top-3 right-0 p-1 text-gray-400 hover:text-blue-600 dark:text-gray-500 dark:hover:text-blue-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-sm opacity-0 group-hover/field:opacity-100 transition z-10"
           title="Edit"
           aria-label="Edit field value"
         >
@@ -320,7 +317,7 @@ function EditableField({
             onBlur={onSave}
             onKeyDown={handleKeyDown}
             aria-label="Edit select choice"
-            className="text-xs border border-blue-400 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="text-xs border border-blue-400 dark:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             {options.map((opt) => (
               <option key={opt} value={opt}>
@@ -337,7 +334,7 @@ function EditableField({
             onBlur={onSave}
             onKeyDown={handleKeyDown}
             aria-label="Edit text content"
-            className="w-full text-xs border border-blue-400 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full text-xs border border-blue-400 dark:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         )
       ) : (
@@ -351,49 +348,47 @@ function EditableField({
 const SkeletonRow = () => (
   <tr className="animate-pulse">
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-6"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-6"></div>
     </td>
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-20"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-20"></div>
     </td>
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-16"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-16"></div>
     </td>
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-12"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-12"></div>
     </td>
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-10 mx-auto"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-10 mx-auto"></div>
     </td>
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-24"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-24"></div>
     </td>
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-10 mx-auto"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-10 mx-auto"></div>
     </td>
     <td className="py-3 px-3">
       <div className="flex items-center justify-center space-x-1">
-        <div className="h-4 w-6 bg-gray-200 rounded"></div>
-        <div className="h-4 w-6 bg-gray-200 rounded"></div>
-        <div className="h-4 w-6 bg-gray-200 rounded"></div>
+        <div className="h-4 w-6 bg-gray-200 dark:bg-gray-800 rounded"></div>
+        <div className="h-4 w-6 bg-gray-200 dark:bg-gray-800 rounded"></div>
+        <div className="h-4 w-6 bg-gray-200 dark:bg-gray-800 rounded"></div>
       </div>
     </td>
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-10 mx-auto"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-10 mx-auto"></div>
     </td>
     <td className="py-3 px-3">
-      <div className="h-4 bg-gray-200 rounded w-10 mx-auto"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-10 mx-auto"></div>
     </td>
     <td className="py-3 px-2">
-      <div className="h-4 bg-gray-200 rounded w-6 mx-auto"></div>
+      <div className="h-4 bg-gray-200 dark:bg-gray-800 rounded w-6 mx-auto"></div>
     </td>
   </tr>
 );
 
 export default function Dashboard() {
-  const [isProcessing, setIsProcessing] = useState(false);
   const [extractedData, setExtractedData] = useState([]);
-  const [progress, setProgress] = useState({ current: 0, total: 1, file: '', currentFileIndex: 0, totalFiles: 0 });
 
   const [editingCell, setEditingCell] = useState(null);
   const [editValue, setEditValue] = useState('');
@@ -430,7 +425,42 @@ export default function Dashboard() {
   });
 
   useEffect(() => {
+    let isMounted = true;
+    const fetchFromPostgres = async () => {
+      setIsTableLoading(true);
+      try {
+        const res = await fetch(API_ENDPOINTS.bids);
+        if (!res.ok) throw new Error('API request failed');
+        const data = await res.json();
+        const sorted = sortExtractedData(data);
+        if (isMounted) {
+          setExtractedData(sorted);
+          localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(sorted));
+        }
+        clientLogger('info', 'Fetched data from PostgreSQL', { count: data.length });
+      } catch (err) {
+        console.warn('PostgreSQL server offline, falling back to LocalStorage history:', err);
+        clientLogger('warn', 'PostgreSQL fetch failed, using localStorage', { error: err.message });
+        const savedData = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
+        if (savedData && isMounted) {
+          try {
+            const parsed = JSON.parse(savedData);
+            setExtractedData(sortExtractedData(parsed));
+          } catch (e) {
+            console.warn('Failed to parse saved local history:', e.message);
+          }
+        }
+      } finally {
+        if (isMounted) {
+          setIsTableLoading(false);
+        }
+      }
+    };
+
     fetchFromPostgres();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // --- NEW: Auto‑scroll to bottom whenever data changes ---
@@ -442,33 +472,8 @@ export default function Dashboard() {
     }
   }, [extractedData]);
 
-  // ----- Rest of the component (fetchFromPostgres, saveToLocalStorage, etc.) remains unchanged -----
-  // ... (all other functions like fetchFromPostgres, saveToPostgresInChunks, exportToExcel, etc. are exactly as in the original file)
-
-  const fetchFromPostgres = async () => {
-    setIsTableLoading(true);
-    try {
-      const res = await fetch(API_ENDPOINTS.bids);
-      if (!res.ok) throw new Error('API request failed');
-      const data = await res.json();
-      const sorted = sortExtractedData(data);
-      setExtractedData(sorted);
-      localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(sorted));
-      clientLogger('info', 'Fetched data from PostgreSQL', { count: data.length });
-    } catch (err) {
-      console.warn('PostgreSQL server offline, falling back to LocalStorage history:', err);
-      clientLogger('warn', 'PostgreSQL fetch failed, using localStorage', { error: err.message });
-      const savedData = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
-      if (savedData) {
-        try {
-          const parsed = JSON.parse(savedData);
-          setExtractedData(sortExtractedData(parsed));
-        } catch (e) {}
-      }
-    } finally {
-      setIsTableLoading(false);
-    }
-  };
+  const serialNumbers = useMemo(() => computeVendorSerialNumbers(extractedData), [extractedData]);
+  const ruleCheckByVendor = useMemo(() => computeRuleCheckByVendor(extractedData), [extractedData]);
 
   const saveToLocalStorage = (newData) => {
     const sorted = sortExtractedData(newData);
@@ -762,7 +767,7 @@ export default function Dashboard() {
     }
   };
 
-  const parsePdfFileContextAsync = (file) => {
+  const parsePdfFileContextAsync = (file, vendorName = null) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
 
@@ -795,7 +800,7 @@ export default function Dashboard() {
             page.cleanup();
           }
 
-          await logExtractedText(file.name, filePagesData.map(p => ({ pageIndex: p.index, text: p.text })));
+          await logExtractedText(file.name, filePagesData.map(p => ({ pageIndex: p.index, text: p.text })), vendorName);
 
           let localRecords = [];
 
@@ -1009,12 +1014,16 @@ export default function Dashboard() {
           if (pdf) {
             try {
               await pdf.destroy();
-            } catch (e) {}
+            } catch (e) {
+              console.warn('PDF destroy warning:', e.message);
+            }
           }
           if (loadingTask) {
             try {
               await loadingTask.destroy();
-            } catch (e) {}
+            } catch (e) {
+              console.warn('Loading task destroy warning:', e.message);
+            }
           }
         }
       };
@@ -1031,56 +1040,7 @@ export default function Dashboard() {
     });
   };
 
-  const handleFileUpload = async (e) => {
-    const rawFiles = Array.from(e.target.files);
-    if (!rawFiles.length) return;
 
-    const sortedFiles = rawFiles.sort((a, b) => naturalSort(a.name, b.name));
-
-    setIsProcessing(true);
-    clientLogger('info', `Started processing ${sortedFiles.length} files`);
-
-    let unwrittenBuffer = [];
-
-    for (let index = 0; index < sortedFiles.length; index++) {
-      const currentFile = sortedFiles[index];
-
-      setProgress({
-        current: index + 1,
-        total: sortedFiles.length,
-        file: currentFile.name,
-        currentFileIndex: index + 1,
-        totalFiles: sortedFiles.length,
-      });
-
-      try {
-        const parsedResults = await parsePdfFileContextAsync(currentFile);
-        if (parsedResults.length) {
-          addRecordsToState(parsedResults);
-          unwrittenBuffer.push(...parsedResults);
-          clientLogger('info', `Parsed ${currentFile.name} -> ${parsedResults.length} records`);
-        }
-
-        if (unwrittenBuffer.length >= 50 || index === sortedFiles.length - 1) {
-          saveToPostgresInChunks(unwrittenBuffer.slice()).catch((err) =>
-            console.error('Background save failed:', err)
-          );
-          unwrittenBuffer = [];
-        }
-
-        if (index % 3 === 0) {
-          await new Promise((resolve) => setTimeout(resolve, BULK_PROCESS_THROTTLE_MS));
-        }
-      } catch (error) {
-        console.error(`Error parsing file ${currentFile.name}:`, error);
-        clientLogger('error', `Error parsing ${currentFile.name}`, { error: error.message });
-      }
-    }
-
-    setIsProcessing(false);
-    e.target.value = null;
-    clientLogger('info', 'Finished file processing');
-  };
 
   const triggerFolderBrowse = () => {
     if (folderInputRef.current) folderInputRef.current.click();
@@ -1174,7 +1134,7 @@ export default function Dashboard() {
       });
 
       try {
-        const parsedResults = await parsePdfFileContextAsync(file);
+        const parsedResults = await parsePdfFileContextAsync(file, vendor);
         if (parsedResults.length) {
           const mappedRecords = parsedResults.map((r) => ({ ...r, vendorFolder: vendor }));
           addRecordsToState(mappedRecords);
@@ -1213,13 +1173,13 @@ export default function Dashboard() {
       />
 
       {/* Vendor Folder Bulk Import Section */}
-      <section className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6 max-w-4xl mx-auto">
-        <header className="flex items-center space-x-2 mb-2 text-indigo-600">
+      <section className="bg-white dark:bg-gray-900 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 mb-6 max-w-4xl mx-auto transition-colors duration-200">
+        <header className="flex items-center space-x-2 mb-2 text-indigo-600 dark:text-indigo-400">
           <FolderOpen size={20} className={isBulkProcessing ? 'animate-pulse' : ''} />
           <span className="text-xs font-bold uppercase tracking-wider">Vendor Folder Bulk Import</span>
         </header>
-        <h2 className="text-lg font-bold text-gray-900 mb-2">Import by Vendor Folder</h2>
-        <p className="text-sm text-gray-500 mb-6">
+        <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Import by Vendor Folder</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
           Choose a root folder. Folders will be naturally sorted (Folder 1, Folder 2, Folder 3...) and files inside will
           be read in order.
         </p>
@@ -1242,13 +1202,13 @@ export default function Dashboard() {
             value={selectedFolderPath}
             placeholder="No folder selected yet — click Browse to choose one"
             aria-label="Selected vendor folder path"
-            className="flex-1 text-sm text-gray-700 bg-gray-50 border border-gray-300 rounded-lg px-4 py-2.5 truncate focus:outline-none"
+            className="flex-1 text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-2.5 truncate focus:outline-none"
           />
           <button
             type="button"
             onClick={triggerFolderBrowse}
             disabled={isBulkProcessing || isReadingFolders}
-            className="flex items-center space-x-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg transition flex-shrink-0"
+            className="flex items-center space-x-2 text-sm font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 rounded-lg transition flex-shrink-0"
           >
             <FolderOpen size={16} />
             <span>Browse</span>
@@ -1260,7 +1220,7 @@ export default function Dashboard() {
             type="button"
             onClick={readVendorFolders}
             disabled={!rawFolderFiles.length || isReadingFolders || isBulkProcessing}
-            className="flex items-center space-x-2 text-sm font-semibold text-white bg-gray-700 hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
+            className="flex items-center space-x-2 text-sm font-semibold text-white bg-gray-700 dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 disabled:bg-gray-300 dark:disabled:bg-gray-800 dark:disabled:text-gray-600 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
           >
             {isReadingFolders ? <RefreshCw size={16} className="animate-spin" /> : <ListChecks size={16} />}
             <span>{isReadingFolders ? 'Reading...' : 'Read Folders / Vendors'}</span>
@@ -1274,7 +1234,7 @@ export default function Dashboard() {
               Object.keys(vendorFolders).length === 0 ||
               !Object.values(selectedVendors).some(Boolean)
             }
-            className="flex items-center space-x-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
+            className="flex items-center space-x-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-800 dark:disabled:text-gray-600 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
           >
             <UploadCloud size={16} />
             <span>Upload Files from Selected Folders</span>
@@ -1282,9 +1242,9 @@ export default function Dashboard() {
         </nav>
 
         {Object.keys(vendorFolders).length > 0 && (
-          <aside className="border border-gray-200 rounded-lg overflow-hidden mb-2">
-            <header className="flex justify-between items-center px-4 py-3 bg-gray-50 border-b border-gray-200">
-              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center space-x-1.5">
+          <aside className="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden mb-2">
+            <header className="flex justify-between items-center px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-800">
+              <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide flex items-center space-x-1.5">
                 <Building2 size={14} />
                 <span>{Object.keys(vendorFolders).length} Vendor Folder(s) Detected</span>
               </span>
@@ -1293,7 +1253,7 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => toggleSelectAllVendors(true)}
                   disabled={isBulkProcessing}
-                  className="text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 disabled:opacity-50"
                 >
                   Select All
                 </button>
@@ -1301,19 +1261,19 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => toggleSelectAllVendors(false)}
                   disabled={isBulkProcessing}
-                  className="text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                  className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-50"
                 >
                   Clear
                 </button>
               </nav>
             </header>
-            <ul className="max-h-56 overflow-y-auto divide-y divide-gray-100">
+            <ul className="max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800">
               {Object.keys(vendorFolders)
                 .sort(naturalSort)
                 .map((vendor) => (
                   <li key={vendor}>
                     <label
-                      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${
+                      className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/60 ${
                         isBulkProcessing ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
                       }`}
                     >
@@ -1323,11 +1283,11 @@ export default function Dashboard() {
                           checked={!!selectedVendors[vendor]}
                           onChange={() => toggleVendorSelection(vendor)}
                           disabled={isBulkProcessing}
-                          className="h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                          className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-700 rounded"
                         />
-                        <span className="text-sm font-medium text-gray-800">{vendor}</span>
+                        <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{vendor}</span>
                       </div>
-                      <span className="text-xs text-gray-400">{vendorFolders[vendor].length} file(s)</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">{vendorFolders[vendor].length} file(s)</span>
                     </label>
                   </li>
                 ))}
@@ -1338,30 +1298,30 @@ export default function Dashboard() {
         {isBulkProcessing && (
           <aside className="mt-6" aria-label="Bulk processing progress">
             <div className="flex justify-between items-center mb-1.5">
-              <span className="text-xs font-semibold text-indigo-600">Vendor: {bulkProgress.currentVendor || '—'}</span>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Vendor: {bulkProgress.currentVendor || '—'}</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
                 {bulkProgress.currentFileIndex} / {bulkProgress.totalFiles}
               </span>
             </div>
-            <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+            <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2.5 overflow-hidden">
               <div
-                className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                className="bg-indigo-600 dark:bg-indigo-500 h-2.5 rounded-full transition-all duration-300"
                 style={{
                   width: `${bulkProgress.totalFiles ? (bulkProgress.currentFileIndex / bulkProgress.totalFiles) * 100 : 0}%`,
                 }}
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1.5 truncate">Processing: {bulkProgress.currentFileName || 'Starting...'}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 truncate">Processing: {bulkProgress.currentFileName || 'Starting...'}</p>
           </aside>
         )}
       </section>
 
       {/* Extracted Data Table */}
-      <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden w-full">
-        <header className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+      <section className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden w-full transition-colors duration-200">
+        <header className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/80 flex justify-between items-center">
           <div>
-            <h2 className="font-bold text-gray-900 text-base">Extracted Bid Columns</h2>
-            <p className="text-xs text-gray-400 mt-0.5">High precision composite verification table entries.</p>
+            <h2 className="font-bold text-gray-900 dark:text-white text-base">Extracted Bid Columns</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">High precision composite verification table entries.</p>
           </div>
 
           {extractedData.length > 0 && !isTableLoading && (
@@ -1369,7 +1329,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={clearHistory}
-                className="text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-2 rounded-lg transition"
+                className="text-xs font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-900/60 border border-red-200 dark:border-red-900/50 px-3 py-2 rounded-lg transition"
               >
                 Wipe History
               </button>
@@ -1391,60 +1351,57 @@ export default function Dashboard() {
           className="overflow-x-auto overflow-y-auto max-h-[80vh]"
         >
           <table className="w-full text-left border-collapse relative">
-            <thead className="sticky top-0 z-20 bg-gray-100 border-b border-gray-200 shadow-sm">
-              <tr className="text-xs font-semibold uppercase tracking-wider text-gray-600">
-                <th scope="col" className="py-3 px-3 w-[4%] bg-gray-100">
+            <thead className="sticky top-0 z-20 bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+              <tr className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
+                <th scope="col" className="py-3 px-3 w-[4%] bg-gray-100 dark:bg-gray-800">
                   S.No
                 </th>
-                <th scope="col" className="py-3 px-3 w-[13%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[13%] bg-gray-100 dark:bg-gray-800">
                   WO Number
                 </th>
-                <th scope="col" className="py-3 px-3 w-[10%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[10%] bg-gray-100 dark:bg-gray-800">
                   WO Value
                 </th>
-                <th scope="col" className="py-3 px-3 w-[8%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[8%] bg-gray-100 dark:bg-gray-800">
                   Date
                 </th>
-                <th scope="col" className="py-3 px-3 w-[10%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[10%] bg-gray-100 dark:bg-gray-800">
                   {`Whether WO Date During ${formatDateObject(DATE_VERIFICATION_CUTOFF)}`}
                 </th>
-                <th scope="col" className="py-3 px-3 w-[20%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[20%] bg-gray-100 dark:bg-gray-800">
                   Ministry / Division
                 </th>
-                <th scope="col" className="py-3 px-3 w-[11%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[11%] bg-gray-100 dark:bg-gray-800">
                   WO for Petroleum/Petrochemical Refinery
                 </th>
-                <th scope="col" className="py-3 px-3 w-[11%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[11%] bg-gray-100 dark:bg-gray-800">
                   Rule Check
                 </th>
-                <th scope="col" className="py-3 px-3 w-[7%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[7%] bg-gray-100 dark:bg-gray-800">
                   Completion Certificate
                 </th>
-                <th scope="col" className="py-3 px-3 w-[7%] bg-gray-100">
+                <th scope="col" className="py-3 px-3 w-[7%] bg-gray-100 dark:bg-gray-800">
                   Recommendation
                 </th>
-                <th scope="col" className="py-3 px-2 w-[2%] bg-gray-100">
+                <th scope="col" className="py-3 px-2 w-[2%] bg-gray-100 dark:bg-gray-800">
                   <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 text-sm font-medium text-gray-700">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-sm font-medium text-gray-700 dark:text-gray-300">
               {isTableLoading ? (
                 Array.from({ length: 8 }).map((_, i) => <SkeletonRow key={i} />)
               ) : extractedData.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="p-12 text-center text-gray-400">
+                  <td colSpan={11} className="p-12 text-center text-gray-400 dark:text-gray-500">
                     <FileText size={40} className="mx-auto mb-2 stroke-1" />
                     <p className="text-sm">No processed records found.</p>
-                    <p className="text-xs text-gray-300 mt-1">Import PDFs using the Vendor Folder section above.</p>
+                    <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Import PDFs using the Vendor Folder section above.</p>
                   </td>
                 </tr>
               ) : (
-                (() => {
-                  const serialNumbers = computeVendorSerialNumbers(extractedData);
-                  const ruleCheckByVendor = computeRuleCheckByVendor(extractedData);
-                  return extractedData.map((row, index) => {
-                    const currentVendor =
+                extractedData.map((row, index) => {
+                  const currentVendor =
                       row.vendorFolder && row.vendorFolder.trim() !== '' ? row.vendorFolder : 'Uncategorized Vendor';
                     const prevVendor =
                       index > 0
@@ -1476,14 +1433,14 @@ export default function Dashboard() {
                     return (
                       <React.Fragment key={row.id}>
                         {showVendorHeader && (
-                          <tr className="bg-indigo-50/70 border-t-2 border-indigo-200">
-                            <td colSpan={11} className="py-2.5 px-3 text-xs font-bold uppercase tracking-wide text-indigo-800 bg-indigo-100/60">
+                          <tr className="bg-indigo-50/70 dark:bg-indigo-950/50 border-t-2 border-indigo-200 dark:border-indigo-900/80">
+                            <td colSpan={11} className="py-2.5 px-3 text-xs font-bold uppercase tracking-wide text-indigo-800 dark:text-indigo-300 bg-indigo-100/60 dark:bg-indigo-950/70">
                               📁 {currentVendor}
                             </td>
                           </tr>
                         )}
-                        <tr className="group/row hover:bg-slate-50/80 transition-colors align-top">
-                          <td className="py-3 px-3 text-gray-400 font-mono text-xs">{serialNumbers[index]}</td>
+                        <tr className="group/row hover:bg-slate-50/80 dark:hover:bg-gray-800/60 transition-colors align-top">
+                          <td className="py-3 px-3 text-gray-400 dark:text-gray-500 font-mono text-xs">{serialNumbers[index]}</td>
 
                           <td className="py-3 px-3">
                             <EditableField
@@ -1495,13 +1452,13 @@ export default function Dashboard() {
                               onCancel={cancelEditingCell}
                               displayContent={
                                 <div className="flex items-start justify-between gap-1">
-                                  <span className="font-mono text-gray-900 bg-gray-50 px-1.5 py-0.5 border border-gray-200 rounded text-[11px] break-all">
+                                  <span className="font-mono text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-gray-800 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-[11px] break-all">
                                     {row.woNumber}
                                   </span>
                                   <button
                                     type="button"
                                     onClick={() => verifyAndOpenPdf(row)}
-                                    className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition flex-shrink-0"
+                                    className="p-1 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded transition flex-shrink-0"
                                     title="Open PDF in Modal"
                                     aria-label="Open PDF Document in Modal"
                                   >
@@ -1523,7 +1480,7 @@ export default function Dashboard() {
                               displayContent={
                                 <span
                                   className={`font-semibold break-words ${
-                                    isBelowR1Threshold ? 'text-red-600' : 'text-emerald-700'
+                                    isBelowR1Threshold ? 'text-red-600 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'
                                   }`}
                                 >
                                   {row.woValue}
@@ -1532,7 +1489,7 @@ export default function Dashboard() {
                             />
                           </td>
 
-                          <td className="py-3 px-3 text-gray-600 font-normal break-words">
+                          <td className="py-3 px-3 text-gray-600 dark:text-gray-300 font-normal break-words">
                             <EditableField
                               isEditing={isCellEditing('date')}
                               editValue={editValue}
@@ -1556,11 +1513,11 @@ export default function Dashboard() {
                               onCancel={cancelEditingCell}
                               displayContent={
                                 dateVerified === 'Yes' ? (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50">
                                     Yes
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-600 border border-red-200">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50">
                                     No
                                   </span>
                                 )
@@ -1568,7 +1525,7 @@ export default function Dashboard() {
                             />
                           </td>
 
-                          <td className="py-3 px-3 text-gray-900 font-medium break-words">
+                          <td className="py-3 px-3 text-gray-900 dark:text-gray-100 font-medium break-words">
                             <EditableField
                               isEditing={isCellEditing('ministry')}
                               editValue={editValue}
@@ -1592,11 +1549,11 @@ export default function Dashboard() {
                               onCancel={cancelEditingCell}
                               displayContent={
                                 ministryVerified === 'Yes' ? (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50">
                                     Yes
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-600 border border-red-200">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50">
                                     No
                                   </span>
                                 )
@@ -1610,8 +1567,8 @@ export default function Dashboard() {
                                 <span
                                   className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
                                     ruleCheckResult.R1
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : 'bg-red-50 text-red-600 border-red-200'
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
+                                      : 'bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'
                                   }`}
                                 >
                                   R1
@@ -1619,8 +1576,8 @@ export default function Dashboard() {
                                 <span
                                   className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
                                     ruleCheckResult.R2
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : 'bg-red-50 text-red-600 border-red-200'
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
+                                      : 'bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'
                                   }`}
                                 >
                                   R2
@@ -1628,8 +1585,8 @@ export default function Dashboard() {
                                 <span
                                   className={`px-1.5 py-0.5 rounded text-xs font-bold border ${
                                     ruleCheckResult.R3
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : 'bg-red-50 text-red-600 border-red-200'
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
+                                      : 'bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/50'
                                   }`}
                                 >
                                   R3
@@ -1650,11 +1607,11 @@ export default function Dashboard() {
                               onCancel={cancelEditingCell}
                               displayContent={
                                 completionCertificate === 'Yes' ? (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50">
                                     Yes
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-600 border border-red-200">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50">
                                     No
                                   </span>
                                 )
@@ -1674,11 +1631,11 @@ export default function Dashboard() {
                               onCancel={cancelEditingCell}
                               displayContent={
                                 recommendation === 'Yes' ? (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50">
                                     Yes
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-600 border border-red-200">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50">
                                     No
                                   </span>
                                 )
@@ -1690,7 +1647,7 @@ export default function Dashboard() {
                             <button
                               type="button"
                               onClick={() => requestDeleteRow(row.id)}
-                              className="p-1.5 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded transition opacity-0 group-hover/row:opacity-100"
+                              className="p-1.5 text-gray-300 dark:text-gray-600 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition opacity-0 group-hover/row:opacity-100"
                               title="Delete row"
                               aria-label="Delete entry row"
                             >
@@ -1700,8 +1657,7 @@ export default function Dashboard() {
                         </tr>
                       </React.Fragment>
                     );
-                  });
-                })()
+                  })
               )}
             </tbody>
           </table>
@@ -1727,16 +1683,16 @@ export default function Dashboard() {
           const rowPendingDelete = extractedData.find((r) => r.id === deleteConfirmRowId);
           return (
             <aside className="fixed inset-0 z-50 flex items-center justify-center px-4" role="dialog" aria-modal="true">
-              <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={cancelDeleteRow} />
-              <article className="relative bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-sm p-6">
-                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-50 mx-auto mb-4">
-                  <Trash2 size={20} className="text-red-500" />
+              <div className="absolute inset-0 bg-gray-900/50 dark:bg-gray-950/80 backdrop-blur-sm" onClick={cancelDeleteRow} />
+              <article className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 w-full max-w-sm p-6">
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-50 dark:bg-red-950/50 mx-auto mb-4">
+                  <Trash2 size={20} className="text-red-500 dark:text-red-400" />
                 </div>
-                <h3 className="text-base font-bold text-gray-900 text-center mb-1.5">Delete this record?</h3>
-                <p className="text-sm text-gray-500 text-center mb-6 leading-relaxed">
+                <h3 className="text-base font-bold text-gray-900 dark:text-white text-center mb-1.5">Delete this record?</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6 leading-relaxed">
                   {rowPendingDelete ? (
                     <>
-                      WO Number <span className="font-mono text-gray-700 break-all">{rowPendingDelete.woNumber}</span> will
+                      WO Number <span className="font-mono text-gray-700 dark:text-gray-300 break-all">{rowPendingDelete.woNumber}</span> will
                       be permanently removed.{' '}
                     </>
                   ) : (
@@ -1748,7 +1704,7 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={cancelDeleteRow}
-                    className="flex-1 text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 px-4 py-2.5 rounded-lg transition"
+                    className="flex-1 text-sm font-semibold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 px-4 py-2.5 rounded-lg transition"
                   >
                     Cancel
                   </button>

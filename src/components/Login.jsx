@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Lock, User, AlertCircle, UserPlus, LogIn, CheckCircle } from 'lucide-react';
 
 export default function Login({ onLogin }) {
@@ -48,43 +48,43 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-900 to-indigo-950 px-4">
-      <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-100 transition-all">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-900 to-indigo-950 dark:from-gray-950 dark:to-slate-900 px-4 transition-colors duration-200">
+      <div className="bg-white dark:bg-gray-900 p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-800 transition-all">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 text-blue-600 mb-3">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 mb-3">
             {isRegisterMode ? <UserPlus size={30} /> : <Lock size={30} />}
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">GeM Bid Portal</h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">GeM Bid Portal</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {isRegisterMode ? 'Create New Member Credentials' : 'Secure Extraction & Verification Dashboard'}
           </p>
         </div>
 
         {errorMsg && (
-          <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 rounded text-sm flex items-start space-x-2">
+          <div className="mb-4 p-3 bg-red-50 dark:bg-red-950/50 border-l-4 border-red-500 text-red-700 dark:text-red-300 rounded text-sm flex items-start space-x-2">
             <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {successMsg && (
-          <div className="mb-4 p-3 bg-green-50 border-l-4 border-green-500 text-green-700 rounded text-sm flex items-start space-x-2">
-            <CheckCircle size={18} className="mt-0.5 flex-shrink-0 text-green-600" />
+          <div className="mb-4 p-3 bg-green-50 dark:bg-green-950/50 border-l-4 border-green-500 text-green-700 dark:text-green-300 rounded text-sm flex items-start space-x-2">
+            <CheckCircle size={18} className="mt-0.5 flex-shrink-0 text-green-600 dark:text-green-400" />
             <span>{successMsg}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">Username</label>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1.5">Username</label>
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 dark:text-gray-500">
                 <User size={18} />
               </span>
               <input
                 type="text"
                 required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
                 placeholder="Enter username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -93,15 +93,15 @@ export default function Login({ onLogin }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">Password</label>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1.5">Password</label>
             <div className="relative">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 dark:text-gray-500">
                 <Lock size={18} />
               </span>
               <input
                 type="password"
                 required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -111,15 +111,15 @@ export default function Login({ onLogin }) {
 
           {isRegisterMode && (
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">Confirm Password</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300 mb-1.5">Confirm Password</label>
               <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 dark:text-gray-500">
                   <Lock size={18} />
                 </span>
                 <input
                   type="password"
                   required
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
                   placeholder="Re-type password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
@@ -137,7 +137,7 @@ export default function Login({ onLogin }) {
           </button>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-gray-100 text-center">
+        <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800 text-center">
           <button
             type="button"
             onClick={() => {
@@ -145,7 +145,7 @@ export default function Login({ onLogin }) {
               setErrorMsg('');
               setSuccessMsg('');
             }}
-            className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition"
+            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition"
           >
             {isRegisterMode ? 'Already have an account? Sign In' : 'Need an account? Register Here'}
           </button>
