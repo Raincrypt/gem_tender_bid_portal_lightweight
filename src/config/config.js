@@ -15,6 +15,7 @@ export const API_ROOT_URL = 'http://localhost:5000';
 
 export const API_ENDPOINTS = {
   bids: `${API_ROOT_URL}/api/bids`,
+  tenders: `${API_ROOT_URL}/api/tenders`,
   logClient: `${API_ROOT_URL}/api/log/client`,
   logExtractedText: `${API_ROOT_URL}/api/log/extracted-text`,
   extractFallback: `${API_ROOT_URL}/api/extract-fallback`,
@@ -24,6 +25,7 @@ export const API_ENDPOINTS = {
 // Key used to persist/restore the extracted data table when the
 // PostgreSQL backend is unreachable.
 export const LOCAL_STORAGE_HISTORY_KEY = 'gem_portal_history';
+export const LOCAL_STORAGE_TENDERS_KEY = 'gem_portal_tenders';
 
 // --- Bulk Save Behavior ---
 // Number of records sent per POST /api/bids/bulk request when saving

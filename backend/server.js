@@ -1,3 +1,4 @@
+/* global process */
 // backend/server.js
 import express from 'express';
 import cors from 'cors';
@@ -58,6 +59,25 @@ app.post('/api/log/client', (req, res) => {
   logToFile(CLIENT_LOG_FILE, logMessage, data);
   res.json({ success: true });
 });
+
+// ========== TABLE INIT ==========
+async function initDbTables() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tenders (
+        id VARCHAR(100) PRIMARY KEY,
+        tender_number VARCHAR(100) NOT NULL,
+        item_title TEXT NOT NULL,
+        division VARCHAR(200) DEFAULT 'Haldia Refinery Division',
+        status VARCHAR(50) DEFAULT 'Active',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (err) {
+    console.warn('Tenders table initialization note:', err.message);
+  }
+}
+initDbTables();
 
 // ========== EXTRACTED TEXT LOG ENDPOINTS ==========
 // Append extracted text (per page)
@@ -307,6 +327,77 @@ app.delete('/api/bids', async (req, res) => {
     logToFile(SERVER_LOG_FILE, `DELETE /api/bids ERROR: ${err.message}`);
     console.error('Truncate error:', err);
     res.status(500).json({ error: 'Wipe history failed' });
+  }
+});
+
+// 7. Tenders management endpoints
+app.get('/api/tenders', async (req, res) => {
+  logToFile(SERVER_LOG_FILE, 'GET /api/tenders');
+  try {
+    const result = await pool.query('SELECT * FROM tenders ORDER BY created_at DESC');
+    const tenders = result.rows.map(row => ({
+      id: row.id,
+      tenderNumber: row.tender_number,
+      itemTitle: row.item_title,
+      division: row.division,
+      status: row.status,
+      createdAt: row.created_at,
+    }));
+    res.json(tenders);
+  } catch (err) {
+    logToFile(SERVER_LOG_FILE, `GET /api/tenders ERROR: ${err.message}`);
+    res.status(500).json({ error: 'Database fetch tenders failed' });
+  }
+});
+
+app.post('/api/tenders', async (req, res) => {
+  const { id, tenderNumber, itemTitle, division } = req.body;
+  logToFile(SERVER_LOG_FILE, `POST /api/tenders - ${tenderNumber}`);
+
+  if (!tenderNumber || !itemTitle) {
+    return res.status(400).json({ error: 'Tender ID and Tender Item are required' });
+  }
+
+  const tenderId = id || `TND-${Date.now()}`;
+  const tenderDiv = division || 'Haldia Refinery Division';
+
+  try {
+    const query = `
+      INSERT INTO tenders (id, tender_number, item_title, division, status)
+      VALUES ($1, $2, $3, $4, 'Active')
+      ON CONFLICT (id) DO UPDATE SET
+        tender_number = EXCLUDED.tender_number,
+        item_title = EXCLUDED.item_title,
+        division = EXCLUDED.division
+      RETURNING *;
+    `;
+    const result = await pool.query(query, [tenderId, tenderNumber, itemTitle, tenderDiv]);
+    const row = result.rows[0];
+    const newTender = {
+      id: row.id,
+      tenderNumber: row.tender_number,
+      itemTitle: row.item_title,
+      division: row.division,
+      status: row.status,
+      createdAt: row.created_at,
+    };
+    res.json({ success: true, tender: newTender });
+  } catch (err) {
+    logToFile(SERVER_LOG_FILE, `POST /api/tenders ERROR: ${err.message}`);
+    res.status(500).json({ error: 'Failed to create tender in database' });
+  }
+});
+
+app.delete('/api/tenders/:id', async (req, res) => {
+  const { id } = req.params;
+  logToFile(SERVER_LOG_FILE, `DELETE /api/tenders/${id}`);
+  try {
+    await pool.query('DELETE FROM tenders WHERE id = $1', [id]);
+    logToFile(SERVER_LOG_FILE, `DELETE /api/tenders/${id} - deleted`);
+    res.json({ success: true });
+  } catch (err) {
+    logToFile(SERVER_LOG_FILE, `DELETE /api/tenders/${id} ERROR: ${err.message}`);
+    res.status(500).json({ error: 'Delete tender failed' });
   }
 });
 

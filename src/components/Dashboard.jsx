@@ -10,11 +10,15 @@ import {
   ListChecks,
   Pencil,
   Trash2,
+  Save,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
 import { PDFDocument } from 'pdf-lib';   // <--- NEW: for page extraction
 import PdfModal from './PdfModal';
+import TenderSelector from './TenderSelector';
 
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -301,7 +305,7 @@ function EditableField({
         <button
           type="button"
           onClick={onStartEdit}
-          className="absolute -top-3 right-0 p-1 text-gray-400 hover:text-blue-600 dark:text-gray-500 dark:hover:text-blue-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-sm opacity-0 group-hover/field:opacity-100 transition z-10"
+          className="absolute -top-3 right-0 p-1 text-gray-400 hover:text-[#003874] dark:text-gray-500 dark:hover:text-blue-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-sm opacity-0 group-hover/field:opacity-100 transition z-10"
           title="Edit"
           aria-label="Edit field value"
         >
@@ -317,7 +321,7 @@ function EditableField({
             onBlur={onSave}
             onKeyDown={handleKeyDown}
             aria-label="Edit select choice"
-            className="text-xs border border-blue-400 dark:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="text-xs border border-[#003874] dark:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#003874] dark:focus:ring-blue-500"
           >
             {options.map((opt) => (
               <option key={opt} value={opt}>
@@ -334,7 +338,7 @@ function EditableField({
             onBlur={onSave}
             onKeyDown={handleKeyDown}
             aria-label="Edit text content"
-            className="w-full text-xs border border-blue-400 dark:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full text-xs border border-[#003874] dark:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#003874] dark:focus:ring-blue-500"
           />
         )
       ) : (
@@ -387,7 +391,13 @@ const SkeletonRow = () => (
   </tr>
 );
 
-export default function Dashboard() {
+export default function Dashboard({
+  selectedTenderId,
+  setSelectedTenderId,
+  tendersList = [],
+  onCreateTender,
+  onRecordsChange,
+}) {
   const [extractedData, setExtractedData] = useState([]);
 
   const [editingCell, setEditingCell] = useState(null);
@@ -395,6 +405,8 @@ export default function Dashboard() {
   const [deleteConfirmRowId, setDeleteConfirmRowId] = useState(null);
 
   const [isTableLoading, setIsTableLoading] = useState(true);
+  const [isSavingToDb, setIsSavingToDb] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
 
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [modalRow, setModalRow] = useState(null);
@@ -432,7 +444,28 @@ export default function Dashboard() {
         const res = await fetch(API_ENDPOINTS.bids);
         if (!res.ok) throw new Error('API request failed');
         const data = await res.json();
-        const sorted = sortExtractedData(data);
+
+        let localData = [];
+        try {
+          const saved = localStorage.getItem(LOCAL_STORAGE_HISTORY_KEY);
+          if (saved) localData = JSON.parse(saved);
+        } catch {
+          // ignore
+        }
+
+        const combinedMap = new Map();
+        if (Array.isArray(localData)) {
+          localData.forEach((item) => {
+            if (item && item.id) combinedMap.set(item.id, item);
+          });
+        }
+        if (Array.isArray(data)) {
+          data.forEach((item) => {
+            if (item && item.id) combinedMap.set(item.id, item);
+          });
+        }
+
+        const sorted = sortExtractedData(Array.from(combinedMap.values()));
         if (isMounted) {
           setExtractedData(sorted);
           localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(sorted));
@@ -479,6 +512,7 @@ export default function Dashboard() {
     const sorted = sortExtractedData(newData);
     setExtractedData(sorted);
     localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(sorted));
+    if (onRecordsChange) onRecordsChange();
   };
 
   const saveToPostgresInChunks = async (records, chunkSize = POSTGRES_CHUNK_SIZE) => {
@@ -494,6 +528,28 @@ export default function Dashboard() {
         console.error('Failed to push chunk to DB, saving locally:', err);
         clientLogger('error', 'DB bulk save failed', { error: err.message, chunkSize: chunk.length });
       }
+    }
+  };
+
+  const handleSaveAllToDatabase = async () => {
+    if (!selectedTenderId) {
+      alert('Please select a tender from the dropdown menu before saving to database.');
+      return;
+    }
+    setIsSavingToDb(true);
+    setSaveSuccessMsg('');
+    try {
+      if (extractedData.length > 0) {
+        await saveToPostgresInChunks(extractedData);
+      }
+      setSaveSuccessMsg('Changes and tenders saved to database successfully!');
+      setTimeout(() => setSaveSuccessMsg(''), 4000);
+      if (onRecordsChange) onRecordsChange();
+    } catch (err) {
+      console.error('Save to database error:', err);
+      alert('Failed saving to database: ' + err.message);
+    } finally {
+      setIsSavingToDb(false);
     }
   };
 
@@ -1035,15 +1091,84 @@ export default function Dashboard() {
   const addRecordsToState = (newRecords) => {
     if (!newRecords.length) return;
     setExtractedData((prev) => {
-      const combined = [...prev, ...newRecords];
-      return sortExtractedData(combined);
+      const updatedList = [...prev];
+      newRecords.forEach((newRec) => {
+        const recTender = newRec.tenderId || selectedTenderId;
+        const recToSave = { ...newRec, tenderId: recTender };
+
+        const existingIdx = updatedList.findIndex((item) => {
+          if (item.id && recToSave.id && item.id === recToSave.id) return true;
+          const sameTender = !item.tenderId || !recToSave.tenderId || item.tenderId === recToSave.tenderId;
+          if (
+            sameTender &&
+            item.vendorFolder === recToSave.vendorFolder &&
+            item.fileName === recToSave.fileName &&
+            item.pageIndex === recToSave.pageIndex
+          ) {
+            return true;
+          }
+          if (
+            sameTender &&
+            item.vendorFolder === recToSave.vendorFolder &&
+            item.woNumber &&
+            recToSave.woNumber &&
+            item.woNumber !== 'Not Found' &&
+            item.woNumber === recToSave.woNumber
+          ) {
+            return true;
+          }
+          return false;
+        });
+
+        if (existingIdx !== -1) {
+          const existingId = updatedList[existingIdx].id;
+          updatedList[existingIdx] = {
+            ...updatedList[existingIdx],
+            ...recToSave,
+            id: recToSave.id || existingId,
+          };
+        } else {
+          updatedList.push(recToSave);
+        }
+      });
+
+      const sorted = sortExtractedData(updatedList);
+      try {
+        localStorage.setItem(LOCAL_STORAGE_HISTORY_KEY, JSON.stringify(sorted));
+      } catch (e) {
+        console.warn('Failed saving history to localStorage:', e);
+      }
+      if (onRecordsChange) onRecordsChange();
+      return sorted;
     });
   };
 
-
-
   const triggerFolderBrowse = () => {
     if (folderInputRef.current) folderInputRef.current.click();
+  };
+
+  const parseVendorFolders = (files) => {
+    const grouped = {};
+    files.forEach((file) => {
+      if (!file.name.toLowerCase().endsWith('.pdf')) return;
+
+      const relPath = file.webkitRelativePath || file.name;
+      const parts = relPath.split('/');
+      let vendor = 'General';
+      if (parts.length > 2) {
+        vendor = parts[1];
+      } else if (parts.length === 2) {
+        vendor = parts[0];
+      }
+
+      if (!grouped[vendor]) grouped[vendor] = [];
+      grouped[vendor].push(file);
+    });
+
+    Object.keys(grouped).forEach((vendor) => {
+      grouped[vendor].sort((a, b) => naturalSort(a.name, b.name));
+    });
+    return grouped;
   };
 
   const handleBrowseFolder = (e) => {
@@ -1057,8 +1182,15 @@ export default function Dashboard() {
     setRawFolderFiles(files);
     setSelectedFolderPath(`${rootFolderName} (${files.length} file${files.length === 1 ? '' : 's'} found)`);
 
-    setVendorFolders({});
-    setSelectedVendors({});
+    const grouped = parseVendorFolders(files);
+    setVendorFolders(grouped);
+
+    const initialSelection = {};
+    Object.keys(grouped).forEach((v) => {
+      initialSelection[v] = true;
+    });
+    setSelectedVendors(initialSelection);
+
     clientLogger('info', `Browsed folder: ${rootFolderName} (${files.length} files)`);
   };
 
@@ -1066,21 +1198,7 @@ export default function Dashboard() {
     if (!rawFolderFiles.length) return;
     setIsReadingFolders(true);
 
-    const grouped = {};
-    rawFolderFiles.forEach((file) => {
-      if (!file.name.toLowerCase().endsWith('.pdf')) return;
-
-      const relPath = file.webkitRelativePath || file.name;
-      const parts = relPath.split('/');
-      const vendor = parts.length > 2 ? parts[1] : 'Uncategorized';
-
-      if (!grouped[vendor]) grouped[vendor] = [];
-      grouped[vendor].push(file);
-    });
-
-    Object.keys(grouped).forEach((vendor) => {
-      grouped[vendor].sort((a, b) => naturalSort(a.name, b.name));
-    });
+    const grouped = parseVendorFolders(rawFolderFiles);
 
     setVendorFolders(grouped);
     const initialSelection = {};
@@ -1105,17 +1223,38 @@ export default function Dashboard() {
   };
 
   const processSelectedVendors = async () => {
-    const vendorsToProcess = Object.keys(vendorFolders)
-      .filter((v) => selectedVendors[v])
+    let activeFolders = vendorFolders;
+    let activeSelections = selectedVendors;
+
+    if (Object.keys(activeFolders).length === 0 && rawFolderFiles.length > 0) {
+      activeFolders = parseVendorFolders(rawFolderFiles);
+      setVendorFolders(activeFolders);
+      activeSelections = {};
+      Object.keys(activeFolders).forEach((v) => {
+        activeSelections[v] = true;
+      });
+      setSelectedVendors(activeSelections);
+    }
+
+    const vendorsToProcess = Object.keys(activeFolders)
+      .filter((v) => activeSelections[v])
       .sort(naturalSort);
 
-    if (!vendorsToProcess.length) return;
+    if (!vendorsToProcess.length) {
+      alert('Please select at least one vendor folder to process.');
+      return;
+    }
 
     const queue = [];
     vendorsToProcess.forEach((vendor) => {
-      vendorFolders[vendor].forEach((file) => queue.push({ file, vendor }));
+      if (activeFolders[vendor]) {
+        activeFolders[vendor].forEach((file) => queue.push({ file, vendor }));
+      }
     });
-    if (!queue.length) return;
+    if (!queue.length) {
+      alert('No PDF files found in the selected vendor folders.');
+      return;
+    }
 
     setIsBulkProcessing(true);
     setBulkProgress({ currentFileIndex: 0, totalFiles: queue.length, currentFileName: '', currentVendor: '' });
@@ -1142,7 +1281,7 @@ export default function Dashboard() {
           clientLogger('info', `Bulk: parsed ${file.name} (vendor: ${vendor}) -> ${mappedRecords.length} records`);
         }
 
-        if (unwrittenBuffer.length >= 50 || idx === queue.length - 1) {
+        if (unwrittenBuffer.length >= 20 || idx === queue.length - 1) {
           saveToPostgresInChunks(unwrittenBuffer.slice()).catch((err) =>
             console.error('Background save failed:', err)
           );
@@ -1172,17 +1311,59 @@ export default function Dashboard() {
         onChange={handleVerifyFileRedirect}
       />
 
+      {/* Top Bar: Active Tender Selector & Save to Database Button */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-200 dark:border-gray-800 shadow-sm mb-6 max-w-4xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400 block mb-1">
+            Active Tender Evaluation
+          </span>
+          <TenderSelector
+            selectedTenderId={selectedTenderId}
+            setSelectedTenderId={setSelectedTenderId}
+            tendersList={tendersList}
+            showCreateOption={true}
+            onCreateTender={onCreateTender}
+          />
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          {saveSuccessMsg && (
+            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-900/50 flex items-center gap-1.5 animate-in fade-in">
+              <CheckCircle2 size={16} />
+              <span>{saveSuccessMsg}</span>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveAllToDatabase}
+            disabled={isSavingToDb || !selectedTenderId}
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#003874] hover:bg-[#002855] text-white rounded-xl text-xs font-bold transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title={!selectedTenderId ? 'Please select a tender from the dropdown first' : 'Save changes and tenders to PostgreSQL database'}
+          >
+            <Save size={16} />
+            <span>{isSavingToDb ? 'Saving to DB...' : 'Save to Database'}</span>
+          </button>
+        </div>
+      </div>
+
       {/* Vendor Folder Bulk Import Section */}
       <section className="bg-white dark:bg-gray-900 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 mb-6 max-w-4xl mx-auto transition-colors duration-200">
-        <header className="flex items-center space-x-2 mb-2 text-indigo-600 dark:text-indigo-400">
+        <header className="flex items-center space-x-2 mb-2 text-[#003874] dark:text-indigo-400">
           <FolderOpen size={20} className={isBulkProcessing ? 'animate-pulse' : ''} />
           <span className="text-xs font-bold uppercase tracking-wider">Vendor Folder Bulk Import</span>
         </header>
         <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Import by Vendor Folder</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
           Choose a root folder. Folders will be naturally sorted (Folder 1, Folder 2, Folder 3...) and files inside will
           be read in order.
         </p>
+
+        {!selectedTenderId && (
+          <div className="mb-5 p-3.5 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-900/60 rounded-xl flex items-center gap-2.5 text-xs font-semibold text-amber-800 dark:text-amber-300 shadow-2xs">
+            <AlertCircle size={18} className="shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>Please select a Tender from the top dropdown menu before uploading files to the database.</span>
+          </div>
+        )}
 
         <input
           ref={folderInputRef}
@@ -1230,11 +1411,13 @@ export default function Dashboard() {
             type="button"
             onClick={processSelectedVendors}
             disabled={
+              !selectedTenderId ||
               isBulkProcessing ||
-              Object.keys(vendorFolders).length === 0 ||
-              !Object.values(selectedVendors).some(Boolean)
+              (!rawFolderFiles.length && Object.keys(vendorFolders).length === 0) ||
+              (Object.keys(vendorFolders).length > 0 && !Object.values(selectedVendors).some(Boolean))
             }
-            className="flex items-center space-x-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-800 dark:disabled:text-gray-600 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
+            className="flex items-center space-x-2 text-sm font-semibold text-white bg-[#003874] hover:bg-[#002855] dark:bg-indigo-600 dark:hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-800 dark:disabled:text-gray-600 disabled:cursor-not-allowed px-5 py-2.5 rounded-lg transition"
+            title={!selectedTenderId ? 'Select a tender from the top dropdown menu to enable upload' : 'Upload files from selected vendor folders'}
           >
             <UploadCloud size={16} />
             <span>Upload Files from Selected Folders</span>
@@ -1253,7 +1436,7 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => toggleSelectAllVendors(true)}
                   disabled={isBulkProcessing}
-                  className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 disabled:opacity-50"
+                  className="text-[#003874] dark:text-indigo-400 hover:text-[#002855] dark:hover:text-indigo-300 disabled:opacity-50"
                 >
                   Select All
                 </button>
@@ -1283,7 +1466,7 @@ export default function Dashboard() {
                           checked={!!selectedVendors[vendor]}
                           onChange={() => toggleVendorSelection(vendor)}
                           disabled={isBulkProcessing}
-                          className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-700 rounded"
+                          className="h-4 w-4 text-[#003874] border-gray-300 dark:border-gray-700 rounded"
                         />
                         <span className="text-sm font-medium text-gray-800 dark:text-gray-200">{vendor}</span>
                       </div>
@@ -1298,14 +1481,14 @@ export default function Dashboard() {
         {isBulkProcessing && (
           <aside className="mt-6" aria-label="Bulk processing progress">
             <div className="flex justify-between items-center mb-1.5">
-              <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Vendor: {bulkProgress.currentVendor || '—'}</span>
+              <span className="text-xs font-semibold text-[#003874] dark:text-indigo-400">Vendor: {bulkProgress.currentVendor || '—'}</span>
               <span className="text-xs text-gray-400 dark:text-gray-500">
                 {bulkProgress.currentFileIndex} / {bulkProgress.totalFiles}
               </span>
             </div>
             <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2.5 overflow-hidden">
               <div
-                className="bg-indigo-600 dark:bg-indigo-500 h-2.5 rounded-full transition-all duration-300"
+                className="bg-[#003874] dark:bg-indigo-500 h-2.5 rounded-full transition-all duration-300"
                 style={{
                   width: `${bulkProgress.totalFiles ? (bulkProgress.currentFileIndex / bulkProgress.totalFiles) * 100 : 0}%`,
                 }}
@@ -1336,7 +1519,7 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={exportToExcel}
-                className="flex items-center space-x-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg transition"
+                className="flex items-center space-x-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl px-4 py-2 transition shadow-xs"
               >
                 <Download size={14} />
                 <span>Export to Excel</span>
@@ -1433,8 +1616,8 @@ export default function Dashboard() {
                     return (
                       <React.Fragment key={row.id}>
                         {showVendorHeader && (
-                          <tr className="bg-indigo-50/70 dark:bg-indigo-950/50 border-t-2 border-indigo-200 dark:border-indigo-900/80">
-                            <td colSpan={11} className="py-2.5 px-3 text-xs font-bold uppercase tracking-wide text-indigo-800 dark:text-indigo-300 bg-indigo-100/60 dark:bg-indigo-950/70">
+                          <tr className="bg-[#003874]/10 dark:bg-indigo-950/50 border-t-2 border-[#003874]/30 dark:border-indigo-900/80">
+                            <td colSpan={11} className="py-2.5 px-3 text-xs font-bold uppercase tracking-wide text-[#003874] dark:text-indigo-300 bg-[#003874]/15 dark:bg-indigo-950/70">
                               📁 {currentVendor}
                             </td>
                           </tr>
@@ -1458,7 +1641,7 @@ export default function Dashboard() {
                                   <button
                                     type="button"
                                     onClick={() => verifyAndOpenPdf(row)}
-                                    className="p-1 text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded transition flex-shrink-0"
+                                    className="p-1 text-[#003874] hover:text-[#002855] dark:text-blue-400 dark:hover:text-blue-300 hover:bg-[#003874]/10 dark:hover:bg-blue-950/50 rounded transition flex-shrink-0"
                                     title="Open PDF in Modal"
                                     aria-label="Open PDF Document in Modal"
                                   >

@@ -37,7 +37,7 @@ export default function PdfModal({
                   type="text"
                   value={modalEditData.woNumber || ''}
                   onChange={(e) => handleModalFieldChange('woNumber', e.target.value)}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500"
                 />
               </div>
               <div>
@@ -46,7 +46,7 @@ export default function PdfModal({
                   type="text"
                   value={modalEditData.woValue || ''}
                   onChange={(e) => handleModalFieldChange('woValue', e.target.value)}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500"
                 />
               </div>
               <div>
@@ -55,7 +55,7 @@ export default function PdfModal({
                   type="text"
                   value={modalEditData.date || ''}
                   onChange={(e) => handleModalFieldChange('date', e.target.value)}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500"
                 />
               </div>
               <div>
@@ -64,7 +64,7 @@ export default function PdfModal({
                   type="text"
                   value={modalEditData.ministry || ''}
                   onChange={(e) => handleModalFieldChange('ministry', e.target.value)}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500"
                 />
               </div>
               <div>
@@ -75,7 +75,7 @@ export default function PdfModal({
                     (verifyDateAfterCutoff ? verifyDateAfterCutoff(modalEditData.date) : 'No')
                   }
                   onChange={(e) => handleModalFieldChange('dateVerified', e.target.value)}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500"
                 >
                   <option value="Yes">Yes</option>
                   <option value="No">No</option>
@@ -89,7 +89,7 @@ export default function PdfModal({
                     (verifyMinistryDepartment ? verifyMinistryDepartment(modalEditData.ministry) : 'No')
                   }
                   onChange={(e) => handleModalFieldChange('ministryVerified', e.target.value)}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500"
                 >
                   <option value="Yes">Yes</option>
                   <option value="No">No</option>
@@ -100,7 +100,7 @@ export default function PdfModal({
                 <select
                   value={modalEditData.completionCertificate || 'No'}
                   onChange={(e) => handleModalFieldChange('completionCertificate', e.target.value)}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500"
                 >
                   <option value="Yes">Yes</option>
                   <option value="No">No</option>
@@ -111,7 +111,7 @@ export default function PdfModal({
                 <select
                   value={modalEditData.recommendation || 'No'}
                   onChange={(e) => handleModalFieldChange('recommendation', e.target.value)}
-                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full text-sm border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500"
                 >
                   <option value="Yes">Yes</option>
                   <option value="No">No</option>
@@ -122,7 +122,7 @@ export default function PdfModal({
             <div className="mt-6 flex items-center space-x-3">
               <button
                 onClick={saveModalChanges}
-                className="flex items-center space-x-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-5 py-2.5 rounded-lg transition"
+                className="flex items-center space-x-2 text-sm font-semibold text-white bg-[#003874] hover:bg-[#002855] dark:bg-blue-600 dark:hover:bg-blue-700 px-5 py-2.5 rounded-lg transition"
               >
                 <Save size={16} />
                 <span>Save Changes</span>

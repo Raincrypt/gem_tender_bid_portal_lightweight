@@ -48,10 +48,10 @@ export default function Login({ onLogin }) {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-900 to-indigo-950 dark:from-gray-950 dark:to-slate-900 px-4 transition-colors duration-200">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-[#003874] to-[#001d3d] dark:from-gray-950 dark:to-slate-900 px-4 transition-colors duration-200">
       <div className="bg-white dark:bg-gray-900 p-8 rounded-xl shadow-2xl w-full max-w-md border border-gray-100 dark:border-gray-800 transition-all">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 mb-3">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#003874]/10 dark:bg-blue-950/70 text-[#003874] dark:text-blue-400 mb-3">
             {isRegisterMode ? <UserPlus size={30} /> : <Lock size={30} />}
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">GeM Bid Portal</h2>
@@ -84,7 +84,7 @@ export default function Login({ onLogin }) {
               <input
                 type="text"
                 required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500 outline-none transition text-sm"
                 placeholder="Enter username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -101,7 +101,7 @@ export default function Login({ onLogin }) {
               <input
                 type="password"
                 required
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500 outline-none transition text-sm"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -119,7 +119,7 @@ export default function Login({ onLogin }) {
                 <input
                   type="password"
                   required
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-sm"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-[#003874] dark:focus:ring-blue-500 focus:border-[#003874] dark:focus:border-blue-500 outline-none transition text-sm"
                   placeholder="Re-type password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
@@ -130,7 +130,7 @@ export default function Login({ onLogin }) {
 
           <button
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg shadow shadow-blue-600/20 hover:shadow-lg transition duration-150 text-sm mt-2 flex items-center justify-center space-x-2"
+            className="w-full bg-[#003874] hover:bg-[#002855] dark:bg-blue-600 dark:hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg shadow shadow-[#003874]/20 hover:shadow-lg transition duration-150 text-sm mt-2 flex items-center justify-center space-x-2"
           >
             {isRegisterMode ? <UserPlus size={16} /> : <LogIn size={16} />}
             <span>{isRegisterMode ? 'Complete Registration' : 'Sign In to Portal'}</span>
@@ -145,7 +145,7 @@ export default function Login({ onLogin }) {
               setErrorMsg('');
               setSuccessMsg('');
             }}
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition"
+            className="text-xs font-semibold text-[#003874] dark:text-blue-400 hover:text-[#002855] dark:hover:text-blue-300 transition"
           >
             {isRegisterMode ? 'Already have an account? Sign In' : 'Need an account? Register Here'}
           </button>

@@ -131,14 +131,16 @@ export default function SettingsModal({
 
           {/* Clock Mode Info Badge */}
           {themeMode === 'clock' && (
-            <div className="mt-2.5 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/50 text-xs text-orange-800 dark:text-orange-300 flex items-center justify-between">
-              <span className="flex items-center space-x-1.5">
-                <Clock size={13} className="text-orange-500 animate-pulse" />
-                <span>Clock Mode:</span>
-              </span>
-              <span className="font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-orange-100 dark:bg-orange-900/80 text-orange-900 dark:text-orange-200 text-[10px]">
-                {effectiveTheme === 'dark' ? '🌙 Dark (Night)' : '☀️ Light (Day)'}
-              </span>
+            <div className="mt-2.5 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-900/50 text-xs text-orange-800 dark:text-orange-300 flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center space-x-1.5">
+                  <Clock size={13} className="text-orange-500 animate-pulse" />
+                  <span>Clock Mode (6 AM–5 PM Day):</span>
+                </span>
+                <span className="font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-orange-100 dark:bg-orange-900/80 text-orange-900 dark:text-orange-200 text-[10px]">
+                  {effectiveTheme === 'dark' ? '🌙 Dark (Night)' : '☀️ Light (Day)'}
+                </span>
+              </div>
             </div>
           )}
         </div>
