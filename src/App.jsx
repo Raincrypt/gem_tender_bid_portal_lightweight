@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import Login from './components/Login';
 import Navbar from './components/Navbar';
-import Dashboard from './components/Dashboard';
-import ManualReview from './components/ManualReview';
+import DashboardPage from './pages/DashboardPage';
+import ManualReviewPage from './pages/ManualReviewPage';
 import Sidebar from './components/Sidebar';
-import TendersPlaceholder from './components/TendersPlaceholder';
-import CurrentTendersPlaceholder from './components/CurrentTendersPlaceholder';
-import UserGuide from './components/UserGuide';
-import AdvancedTesting from './components/AdvancedTesting';
+import PastTendersPage from './pages/PastTendersPage';
+import CurrentTendersPage from './pages/CurrentTendersPage';
+import UserGuidePage from './pages/UserGuidePage';
+import AdvancedTestingPage from './pages/AdvancedTestingPage';
 import { API_ENDPOINTS, LOCAL_STORAGE_HISTORY_KEY, LOCAL_STORAGE_TENDERS_KEY } from './config/config';
 
 function App() {
@@ -250,7 +250,7 @@ function App() {
             />
             <main className="flex-1 overflow-y-auto h-full">
               <div className={activeTab === 'dashboard' ? 'block' : 'hidden'}>
-                <Dashboard
+                <DashboardPage
                   selectedTenderId={selectedTenderId}
                   setSelectedTenderId={setSelectedTenderId}
                   tendersList={tendersList}
@@ -259,10 +259,10 @@ function App() {
                 />
               </div>
               <div className={activeTab === 'manual-review' ? 'block' : 'hidden'}>
-                <ManualReview selectedTenderId={selectedTenderId} />
+                <ManualReviewPage selectedTenderId={selectedTenderId} />
               </div>
               <div className={activeTab === 'tenders' ? 'block' : 'hidden'}>
-                <TendersPlaceholder
+                <PastTendersPage
                   selectedTenderId={selectedTenderId}
                   setSelectedTenderId={setSelectedTenderId}
                   tendersList={tendersList}
@@ -271,7 +271,7 @@ function App() {
                 />
               </div>
               <div className={activeTab === 'current-tenders' ? 'block' : 'hidden'}>
-                <CurrentTendersPlaceholder
+                <CurrentTendersPage
                   selectedTenderId={selectedTenderId}
                   setSelectedTenderId={setSelectedTenderId}
                   tendersList={tendersList}
@@ -280,10 +280,10 @@ function App() {
                 />
               </div>
               <div className={activeTab === 'user-guide' ? 'block' : 'hidden'}>
-                <UserGuide />
+                <UserGuidePage />
               </div>
               <div className={activeTab === 'advanced-testing' ? 'block' : 'hidden'}>
-                <AdvancedTesting selectedTenderId={selectedTenderId} aiModel={aiModel} />
+                <AdvancedTestingPage selectedTenderId={selectedTenderId} aiModel={aiModel} />
               </div>
             </main>
           </div>

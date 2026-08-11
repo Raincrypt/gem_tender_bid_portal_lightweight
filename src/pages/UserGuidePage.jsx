@@ -10,7 +10,7 @@ import {
   Database,
 } from 'lucide-react';
 
-export default function UserGuide() {
+export default function UserGuidePage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       {/* Header Banner */}

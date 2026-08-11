@@ -1,7 +1,7 @@
 import { CheckCircle2 } from 'lucide-react';
-import TenderSelector from './TenderSelector';
+import TenderSelector from '../components/TenderSelector';
 
-export default function CurrentTendersPlaceholder({
+export default function CurrentTendersPage({
   selectedTenderId,
   setSelectedTenderId,
   tendersList = [],
@@ -38,9 +38,11 @@ export default function CurrentTendersPlaceholder({
         <div className="p-4 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 mb-3">
           <CheckCircle2 size={32} />
         </div>
-        <h2 className="text-base font-bold text-gray-800 dark:text-gray-200">Accepted Tenders</h2>
-        <p className="text-xs text-gray-400 dark:text-gray-500 max-w-sm mt-1">
-          This page is currently intentionally blank.
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
+          No Accepted Tenders Yet
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md">
+          Accepted tenders and approved vendor compliance reports will appear here once finalized from the evaluation dashboard.
         </p>
       </div>
     </div>

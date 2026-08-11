@@ -11,10 +11,10 @@ import {
   Layers,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import TenderSelector from './TenderSelector';
+import TenderSelector from '../components/TenderSelector';
 import { API_ENDPOINTS, LOCAL_STORAGE_HISTORY_KEY } from '../config/config';
 
-export default function TendersPlaceholder({
+export default function PastTendersPage({
   selectedTenderId,
   setSelectedTenderId,
   tendersList = [],
@@ -214,7 +214,7 @@ export default function TendersPlaceholder({
             />
           </div>
 
-          {/* Complete Tender Evaluation Table (Without Link-to-Page buttons) */}
+          {/* Complete Tender Evaluation Table */}
           <div className="border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">

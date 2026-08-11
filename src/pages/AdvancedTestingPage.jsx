@@ -21,122 +21,21 @@ import {
   ChevronRight,
   GripVertical,
 } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 import {
-  DATE_VERIFICATION_CUTOFF,
-  VALID_MINISTRIES,
-  VALID_MINISTRY_KEYWORDS,
-  CURRENCY_LOCALE,
-  CURRENCY_SYMBOL,
-  DATE_DISPLAY_FORMAT,
-  RULE_CHECK_TIERS,
-  IOCL_DETECTION_MARKERS,
-  IOCL_WORK_ORDER_MARKER,
-  IOCL_GEMC_EXCLUSION_MARKER,
-  IOCL_DEFAULT_MINISTRY,
-  IOCL_WO_NUMBER_PATTERN,
-  IOCL_WO_VALUE_PATTERNS,
-  IOCL_WO_VALUE_FALLBACK_PATTERN,
-  IOCL_DATE_PATTERNS,
-  NEW_CONTRACT_START_PATTERN,
-  WO_NUMBER_PATTERNS,
-  WO_NUMBER_LABEL_STRIP_PATTERN,
-  DATE_LABEL_PATTERNS,
-  DATE_ANCHOR_SEARCH_PATTERN,
-  DATE_FALLBACK_SNIPPET_WINDOW,
-  DATE_FALLBACK_PATTERNS,
-  WO_VALUE_TIER1_PATTERN,
-  WO_VALUE_TIER2_PATTERN,
-  WO_VALUE_MIN_DIGIT_LENGTH,
-  WO_VALUE_ANCHOR_SEARCH_PATTERN,
-  WO_VALUE_CONTEXT_WINDOW,
-  WO_VALUE_FALLBACK_PATTERN,
-  MINISTRY_PATTERNS,
-  ORGANISATION_NAME_PATTERN,
-  MINISTRY_KEYWORD_RULES,
+  API_ENDPOINTS,
 } from '../config/config';
 
-const MONTH_ABBR = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
-
-const parseExtractedDate = (dateStr) => {
-  if (!dateStr || dateStr === 'Not Found') return null;
-  const cleaned = dateStr.trim();
-
-  let match = cleaned.match(/^(\d{2})[-/.]([A-Za-z]{3})[-/.](\d{4})$/);
-  if (match && MONTH_ABBR[match[2].toLowerCase()] !== undefined) {
-    return new Date(Number(match[3]), MONTH_ABBR[match[2].toLowerCase()], Number(match[1]));
-  }
-
-  match = cleaned.match(/^(\d{2})[-/.](\d{2})[-/.](\d{4})$/);
-  if (match) {
-    return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
-  }
-
-  match = cleaned.match(/^(\d{4})[-/.](\d{2})[-/.](\d{2})$/);
-  if (match) {
-    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  }
-
-  const fallback = new Date(cleaned);
-  return isNaN(fallback.getTime()) ? null : fallback;
-};
-
-const verifyDateAfterCutoff = (dateStr) => {
-  const parsed = parseExtractedDate(dateStr);
-  if (!parsed) return 'No';
-  return parsed >= DATE_VERIFICATION_CUTOFF ? 'Yes' : 'No';
-};
-
-const verifyMinistryDepartment = (ministryStr) => {
-  if (!ministryStr || ministryStr === 'Not Found') return 'No';
-  const normalized = ministryStr.trim().toLowerCase();
-
-  if (VALID_MINISTRIES.some((m) => m.trim().toLowerCase() === normalized)) return 'Yes';
-  if (VALID_MINISTRY_KEYWORDS.some((kw) => normalized.includes(kw.toLowerCase()))) return 'Yes';
-
-  return 'No';
-};
-
-const formatIndianCurrency = (valueStr) => {
-  if (!valueStr || valueStr === 'Not Found') return valueStr;
-
-  const isIOCLFormat = valueStr.includes('including GST') || valueStr.startsWith('Rs.');
-  const cleaned = valueStr.toString().replace(/[^0-9.]/g, '');
-  if (!cleaned) return valueStr;
-
-  const numericValue = parseFloat(cleaned);
-  if (isNaN(numericValue)) return valueStr;
-
-  const formatted = numericValue.toLocaleString(CURRENCY_LOCALE, { maximumFractionDigits: 2 });
-  if (isIOCLFormat) return `Rs. ${formatted} including GST`;
-
-  return `${CURRENCY_SYMBOL} ${formatted}`;
-};
-
-const formatDateDisplay = (dateStr) => {
-  if (!dateStr || dateStr === 'Not Found') return dateStr;
-  const parsed = parseExtractedDate(dateStr);
-  if (!parsed) return dateStr;
-  const dd = String(parsed.getDate()).padStart(2, '0');
-  const mm = String(parsed.getMonth() + 1).padStart(2, '0');
-  const yyyy = parsed.getFullYear();
-  return DATE_DISPLAY_FORMAT.replace('YYYY', yyyy).replace('MM', mm).replace('DD', dd);
-};
-
-const parseCurrencyToNumber = (valueStr) => {
-  if (!valueStr || valueStr === 'Not Found') return null;
-  const cleaned = valueStr.toString().replace(/[^\d.]/g, '');
-  if (!cleaned) return null;
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? null : num;
-};
+import {
+  verifyDateAfterCutoff,
+  verifyMinistryDepartment,
+  formatIndianCurrency,
+  formatDateDisplay,
+  parseCurrencyToNumber,
+  evaluateRuleCheck,
+  extractPdfPagesText,
+  extractRecordsFromPages,
+} from '../services/pdfProcessor';
 
 const formatAiModelName = (modelKey) => {
   if (!modelKey) return 'Gemini 2.5 Flash';
@@ -147,16 +46,6 @@ const formatAiModelName = (modelKey) => {
     'gemini-2.0-flash-lite': 'Gemini 2.0 Flash Lite',
   };
   return map[modelKey] || modelKey;
-};
-
-const evaluateRuleCheck = (values) => {
-  const result = { satisfied: false, R1: false, R2: false, R3: false };
-  RULE_CHECK_TIERS.forEach((tier) => {
-    const meetsTier = values.filter((v) => v > tier.threshold).length >= tier.minCount;
-    result[tier.id] = meetsTier;
-    if (meetsTier) result.satisfied = true;
-  });
-  return result;
 };
 
 const renderHighlightedText = (text, record, filterSearch) => {
@@ -362,6 +251,21 @@ export default function AdvancedTesting({ aiModel = 'gemini-2.5-flash' }) {
     }
   };
 
+  const callAiFallback = async (pageText) => {
+    try {
+      const res = await fetch(API_ENDPOINTS.extractFallback, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: pageText, model: aiModel }),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      console.error('AI Fallback failed to respond:', e);
+      return null;
+    }
+  };
+
   const processSinglePdf = async (selectedFile) => {
     if (!selectedFile) return;
     setFile(selectedFile);
@@ -372,196 +276,17 @@ export default function AdvancedTesting({ aiModel = 'gemini-2.5-flash' }) {
     setPdfUrl(objectUrl);
 
     try {
-      const arrayBuffer = await selectedFile.arrayBuffer();
-      const typedArray = new Uint8Array(arrayBuffer);
-      const loadingTask = pdfjsLib.getDocument({ data: typedArray });
-      const pdf = await loadingTask.promise;
-
-      const numPages = pdf.numPages;
-      const pagesData = [];
-      let globalText = '';
-
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item) => item.str).join(' ').replace(/\s+/g, ' ').trim();
-
-        pagesData.push({ pageIndex: i, text: pageText });
-        globalText += ' ' + pageText;
-        page.cleanup();
-      }
-
+      const { pagesData, globalText } = await extractPdfPagesText(selectedFile);
       setExtractedPages(pagesData);
 
-      // Determine classification & perform extraction logic
-      const isIOCLDocument =
-        globalText.includes(IOCL_DETECTION_MARKERS[0]) ||
-        globalText.includes(IOCL_DETECTION_MARKERS[1]) ||
-        (globalText.includes(IOCL_WORK_ORDER_MARKER) && !globalText.includes(IOCL_GEMC_EXCLUSION_MARKER));
+      const { isIOCLDocument, localRecords } = await extractRecordsFromPages(
+        pagesData,
+        selectedFile.name,
+        globalText,
+        callAiFallback
+      );
 
       setDocType(isIOCLDocument ? 'IOCL / Haldia Refinery Work Order' : 'Standard GeM Contract');
-
-      let localRecords = [];
-
-      if (isIOCLDocument) {
-        let woNumber = 'Not Found',
-          woValue = 'Not Found',
-          date = 'Not Found',
-          ministry = IOCL_DEFAULT_MINISTRY;
-
-        const woMatch = globalText.match(IOCL_WO_NUMBER_PATTERN);
-        if (woMatch) woNumber = woMatch[1].trim();
-
-        const valueMatch =
-          globalText.match(IOCL_WO_VALUE_PATTERNS[0]) ||
-          globalText.match(IOCL_WO_VALUE_PATTERNS[1]) ||
-          globalText.match(IOCL_WO_VALUE_PATTERNS[2]);
-
-        if (valueMatch) {
-          woValue = 'Rs. ' + valueMatch[1].trim() + ' including GST';
-        } else {
-          const fallbackNumMatch = globalText.match(IOCL_WO_VALUE_FALLBACK_PATTERN);
-          if (fallbackNumMatch) {
-            woValue = 'Rs. ' + fallbackNumMatch[0].trim() + ' including GST';
-          }
-        }
-
-        const dateMatch =
-          globalText.match(IOCL_DATE_PATTERNS[0]) ||
-          globalText.match(IOCL_DATE_PATTERNS[1]) ||
-          globalText.match(IOCL_DATE_PATTERNS[2]);
-        if (dateMatch) date = dateMatch[0].trim();
-
-        localRecords.push({
-          id: `test-rec-${Date.now()}-1`,
-          createdAt: Date.now(),
-          woNumber,
-          woValue,
-          date,
-          ministry,
-          fileName: selectedFile.name,
-          pageIndex: 1,
-          vendorFolder: 'Test Vendor',
-        });
-      } else {
-        let currentRecord = null;
-
-        for (let pageObj of pagesData) {
-          const pageStr = pageObj.text;
-          const isNewContractStart = NEW_CONTRACT_START_PATTERN.test(pageStr);
-
-          if (isNewContractStart || (!currentRecord && localRecords.length === 0)) {
-            if (currentRecord) localRecords.push(currentRecord);
-
-            currentRecord = {
-              id: `test-rec-${Date.now()}-${pageObj.pageIndex}`,
-              createdAt: Date.now() + pageObj.pageIndex,
-              woNumber: 'Not Found',
-              woValue: 'Not Found',
-              date: 'Not Found',
-              ministry: 'Not Found',
-              fileName: selectedFile.name,
-              pageIndex: pageObj.pageIndex,
-              vendorFolder: 'Test Vendor',
-            };
-          }
-
-          if (currentRecord) {
-            if (currentRecord.woNumber === 'Not Found') {
-              const woMatch =
-                pageStr.match(WO_NUMBER_PATTERNS[0]) ||
-                pageStr.match(WO_NUMBER_PATTERNS[1]) ||
-                pageStr.match(WO_NUMBER_PATTERNS[2]);
-              if (woMatch) {
-                const extractedWo = woMatch[1] || woMatch[0];
-                currentRecord.woNumber = extractedWo.replace(WO_NUMBER_LABEL_STRIP_PATTERN, '').trim();
-              }
-            }
-
-            if (currentRecord.date === 'Not Found') {
-              const dateMatch =
-                pageStr.match(DATE_LABEL_PATTERNS[0]) ||
-                pageStr.match(DATE_LABEL_PATTERNS[1]) ||
-                pageStr.match(DATE_LABEL_PATTERNS[2]);
-
-              if (dateMatch && dateMatch[1] && /\d/.test(dateMatch[1])) {
-                currentRecord.date = dateMatch[1].trim().replace(/[\]|]/g, '');
-              } else {
-                const dateAnchorIndex = pageStr.search(DATE_ANCHOR_SEARCH_PATTERN);
-                if (dateAnchorIndex !== -1) {
-                  const localSnippet = pageStr.substring(dateAnchorIndex, dateAnchorIndex + DATE_FALLBACK_SNIPPET_WINDOW);
-                  const fallbackDate =
-                    localSnippet.match(DATE_FALLBACK_PATTERNS[0]) || localSnippet.match(DATE_FALLBACK_PATTERNS[1]);
-                  if (fallbackDate) {
-                    currentRecord.date = fallbackDate[0].trim();
-                  }
-                }
-              }
-            }
-
-            if (currentRecord.woValue === 'Not Found') {
-              const tier1Match = pageStr.match(WO_VALUE_TIER1_PATTERN);
-
-              if (tier1Match && tier1Match[1].replace(/[^0-9]/g, '').length >= WO_VALUE_MIN_DIGIT_LENGTH) {
-                currentRecord.woValue = '₹ ' + tier1Match[1].replace(/\s+/g, '').trim();
-              } else {
-                const tier2Match = pageStr.match(WO_VALUE_TIER2_PATTERN);
-
-                if (tier2Match && tier2Match[1].replace(/[^0-9]/g, '').length >= WO_VALUE_MIN_DIGIT_LENGTH) {
-                  currentRecord.woValue = '₹ ' + tier2Match[1].replace(/\s+/g, '').trim();
-                } else {
-                  const valueAnchorIndex = pageStr.search(WO_VALUE_ANCHOR_SEARCH_PATTERN);
-                  if (valueAnchorIndex !== -1) {
-                    const contextWindowSnippet = pageStr.substring(valueAnchorIndex, valueAnchorIndex + WO_VALUE_CONTEXT_WINDOW);
-                    const fallbackNumMatch = contextWindowSnippet.match(WO_VALUE_FALLBACK_PATTERN);
-                    if (fallbackNumMatch) {
-                      const cleanedFallback = fallbackNumMatch[0].replace(/\s+/g, '');
-                      if (cleanedFallback.replace(/[^0-9]/g, '').length >= WO_VALUE_MIN_DIGIT_LENGTH) {
-                        currentRecord.woValue = '₹ ' + cleanedFallback.trim();
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-            if (currentRecord.ministry === 'Not Found') {
-              const ministryMatch =
-                pageStr.match(MINISTRY_PATTERNS[0]) ||
-                pageStr.match(MINISTRY_PATTERNS[1]) ||
-                pageStr.match(MINISTRY_PATTERNS[2]);
-
-              if (ministryMatch && ministryMatch[1]) {
-                currentRecord.ministry = 'Ministry of ' + ministryMatch[1].trim();
-              } else {
-                const orgMatch = pageStr.match(ORGANISATION_NAME_PATTERN);
-                if (orgMatch && orgMatch[1] && !/Not Found/i.test(orgMatch[1])) {
-                  currentRecord.ministry = orgMatch[1].trim();
-                } else {
-                  const matchedKeywordRule = MINISTRY_KEYWORD_RULES.find((rule) => rule.pattern.test(pageStr));
-                  if (matchedKeywordRule) currentRecord.ministry = matchedKeywordRule.ministry;
-                }
-              }
-            }
-          }
-        }
-
-        if (currentRecord) localRecords.push(currentRecord);
-
-        if (localRecords.length === 0) {
-          localRecords.push({
-            id: `test-rec-${Date.now()}-fallback`,
-            createdAt: Date.now(),
-            woNumber: 'Not Found',
-            woValue: 'Not Found',
-            date: 'Not Found',
-            ministry: 'Not Found',
-            fileName: selectedFile.name,
-            pageIndex: 1,
-            vendorFolder: 'Test Vendor',
-          });
-        }
-      }
 
       const formattedRecords = localRecords.map((record) => {
         const displayWoValue = formatIndianCurrency(record.woValue);
