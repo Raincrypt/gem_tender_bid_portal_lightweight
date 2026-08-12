@@ -3,13 +3,16 @@ import {
   FileSearch,
   Save,
   CheckCircle2,
-  FileText,
   Upload,
   RefreshCw,
   PlusCircle,
   FolderOpen,
   X,
+  ZoomIn,
+  ZoomOut,
+  FileUp,
 } from 'lucide-react';
+import { savePdfBlob, getAllPdfBlobs } from '../services/pdfStore';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
@@ -91,6 +94,14 @@ function PdfCanvasViewer({ pdfUrl, activePage, onPageChange, onTotalPagesKnown, 
   const [pdfDoc, setPdfDoc] = useState(null);
   const [pdfError, setPdfError] = useState(null);
   const [isRendering, setIsRendering] = useState(false);
+  const [scale, setScale] = useState(1.25);
+  const [viewMode, setViewMode] = useState('canvas'); // 'canvas' | 'embed'
+
+  const [prevActivePage, setPrevActivePage] = useState(activePage);
+  if (prevActivePage !== activePage) {
+    setPrevActivePage(activePage);
+    setPageInput(activePage);
+  }
 
   useEffect(() => {
     if (!pdfUrl) return;
@@ -108,7 +119,7 @@ function PdfCanvasViewer({ pdfUrl, activePage, onPageChange, onTotalPagesKnown, 
       (err) => {
         if (isCancelled) return;
         console.warn('PDF loading error:', err);
-        setPdfError('Failed to load PDF file preview.');
+        setPdfError('Canvas viewer encountered an issue loading this PDF. Try switching to Embedded mode.');
       }
     );
     return () => {
@@ -117,14 +128,16 @@ function PdfCanvasViewer({ pdfUrl, activePage, onPageChange, onTotalPagesKnown, 
   }, [pdfUrl, onTotalPagesKnown]);
 
   useEffect(() => {
-    if (!pdfDoc || !activePage || !canvasRef.current) return;
+    if (!pdfDoc || !activePage || !canvasRef.current || viewMode !== 'canvas') return;
     let isCancelled = false;
+    let currentRenderTask = null;
 
     const pageToRender = Math.max(1, Math.min(numPages || 1, activePage));
+    setIsRendering(true);
 
     pdfDoc.getPage(pageToRender).then((page) => {
       if (isCancelled) return;
-      const viewport = page.getViewport({ scale: 1.15 });
+      const viewport = page.getViewport({ scale });
       const canvas = canvasRef.current;
       if (!canvas) return;
       const context = canvas.getContext('2d');
@@ -132,19 +145,32 @@ function PdfCanvasViewer({ pdfUrl, activePage, onPageChange, onTotalPagesKnown, 
       canvas.width = viewport.width;
 
       const renderContext = { canvasContext: context, viewport };
-      page.render(renderContext).promise.then(() => {
+      currentRenderTask = page.render(renderContext);
+      currentRenderTask.promise.then(() => {
         if (isCancelled) return;
         setIsRendering(false);
         if (onMarkPageRead) onMarkPageRead(pageToRender);
-      }).catch(() => {
-        if (!isCancelled) setIsRendering(false);
+      }).catch((err) => {
+        if (!isCancelled && err?.name !== 'RenderingCancelledException') {
+          console.warn('Canvas render error:', err);
+          setIsRendering(false);
+        }
       });
+    }).catch(() => {
+      if (!isCancelled) setIsRendering(false);
     });
 
     return () => {
       isCancelled = true;
+      if (currentRenderTask) {
+        try {
+          currentRenderTask.cancel();
+        } catch {
+          // ignore
+        }
+      }
     };
-  }, [pdfDoc, activePage, numPages, onMarkPageRead]);
+  }, [pdfDoc, activePage, numPages, scale, viewMode, onMarkPageRead]);
 
   const handleGoToPage = (newPage) => {
     const p = Math.max(1, Math.min(numPages || 1, newPage));
@@ -155,7 +181,7 @@ function PdfCanvasViewer({ pdfUrl, activePage, onPageChange, onTotalPagesKnown, 
   return (
     <div className="flex flex-col h-full w-full">
       {/* Viewer Header Controls */}
-      <div className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-xs font-semibold shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-xs font-semibold shrink-0">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -178,24 +204,73 @@ function PdfCanvasViewer({ pdfUrl, activePage, onPageChange, onTotalPagesKnown, 
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-gray-500 font-normal">Go to pg:</span>
-          <input
-            type="number"
-            min={1}
-            max={numPages || 1}
-            value={pageInput}
-            onChange={(e) => setPageInput(Number(e.target.value))}
-            onKeyDown={(e) => e.key === 'Enter' && handleGoToPage(pageInput)}
-            className="w-12 text-center text-xs border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 px-1 py-0.5 text-gray-800 dark:text-gray-200"
-          />
+        <div className="flex items-center gap-3">
+          {viewMode === 'canvas' && (
+            <div className="flex items-center gap-1 border-r border-gray-200 dark:border-gray-700 pr-2">
+              <button
+                type="button"
+                onClick={() => setScale((s) => Math.max(0.6, +(s - 0.2).toFixed(1)))}
+                className="p-1 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                title="Zoom Out"
+              >
+                <ZoomOut size={14} />
+              </button>
+              <span className="text-[11px] font-mono text-gray-500 w-10 text-center">
+                {Math.round(scale * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setScale((s) => Math.min(3.0, +(s + 0.2).toFixed(1)))}
+                className="p-1 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                title="Zoom In"
+              >
+                <ZoomIn size={14} />
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-gray-500 font-normal">Go pg:</span>
+            <input
+              type="number"
+              min={1}
+              max={numPages || 1}
+              value={pageInput}
+              onChange={(e) => setPageInput(Number(e.target.value))}
+              onKeyDown={(e) => e.key === 'Enter' && handleGoToPage(pageInput)}
+              className="w-12 text-center text-xs border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 px-1 py-0.5 text-gray-800 dark:text-gray-200"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setViewMode((v) => (v === 'canvas' ? 'embed' : 'canvas'))}
+            className="px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded text-[11px] font-medium hover:bg-gray-300 transition"
+          >
+            {viewMode === 'canvas' ? 'Embedded Mode' : 'Canvas Mode'}
+          </button>
         </div>
       </div>
 
       {/* Viewer Canvas Container */}
       <div className="flex-1 overflow-auto bg-gray-200 dark:bg-gray-950 p-4 flex items-center justify-center min-h-[450px]">
-        {pdfError ? (
-          <div className="text-center p-6 text-xs text-red-500 font-semibold max-w-xs">{pdfError}</div>
+        {viewMode === 'embed' ? (
+          <embed
+            src={`${pdfUrl}#page=${activePage}`}
+            type="application/pdf"
+            className="w-full h-full rounded border border-gray-300 dark:border-gray-800 min-h-[500px]"
+          />
+        ) : pdfError ? (
+          <div className="text-center p-6 text-xs text-red-500 font-semibold max-w-xs space-y-3">
+            <p>{pdfError}</p>
+            <button
+              type="button"
+              onClick={() => setViewMode('embed')}
+              className="px-3 py-1.5 bg-red-600 text-white rounded text-xs font-semibold hover:bg-red-700 transition"
+            >
+              Switch to Embedded Browser Viewer
+            </button>
+          </div>
         ) : (
           <div className="relative shadow-lg rounded border border-gray-300 dark:border-gray-800 bg-white">
             <canvas ref={canvasRef} className="max-w-full h-auto block" />
@@ -367,14 +442,14 @@ export default function ManualReview({ selectedTenderId = '' }) {
           key,
           vendorFolder: vendor,
           fileName: file,
-          url: uploadedPdfUrls[key] || null,
+          url: uploadedPdfUrls[key] || uploadedPdfUrls[file] || null,
         });
       }
     });
 
     // Add any uploaded PDFs not yet in records
     Object.keys(uploadedPdfUrls).forEach((key) => {
-      if (!map.has(key)) {
+      if (!map.has(key) && key.includes('::')) {
         const [vendor, file] = key.split('::');
         map.set(key, {
           key,
@@ -524,18 +599,64 @@ export default function ManualReview({ selectedTenderId = '' }) {
     return { status: 'yellow', label: `Read ${viewedCount}/${total} pgs`, color: 'bg-amber-500', bg: 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300' };
   };
 
-  // Upload Local PDF File
-  const handlePdfUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
+  // Load stored PDF blobs from IndexedDB on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function loadStoredPdfs() {
+      try {
+        const storedMap = await getAllPdfBlobs();
+        if (!isMounted) return;
+        const urls = {};
+        Object.entries(storedMap).forEach(([k, blob]) => {
+          if (blob) {
+            urls[k] = URL.createObjectURL(blob);
+          }
+        });
+        if (Object.keys(urls).length > 0) {
+          setUploadedPdfUrls((prev) => ({ ...urls, ...prev }));
+        }
+      } catch (e) {
+        console.warn('Failed loading stored PDFs from IndexedDB:', e);
+      }
+    }
+    loadStoredPdfs();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Upload Local PDF File(s)
+  const processUploadedFiles = async (files) => {
+    if (!files || files.length === 0) return;
+    const newUrls = {};
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file || !file.name) continue;
+
       const vendor = selectedPdf ? selectedPdf.vendorFolder : 'Uploaded Vendor';
       const fileName = file.name;
       const key = `${vendor}::${fileName}`;
       const url = URL.createObjectURL(file);
 
-      setUploadedPdfUrls((prev) => ({ ...prev, [key]: url }));
-      setSelectedPdfKey(key);
-      setActivePageNumber(1);
+      await savePdfBlob(key, file);
+      await savePdfBlob(fileName, file);
+
+      newUrls[key] = url;
+      newUrls[fileName] = url;
+
+      if (i === 0) {
+        setSelectedPdfKey(key);
+        setActivePageNumber(1);
+      }
+    }
+
+    setUploadedPdfUrls((prev) => ({ ...prev, ...newUrls }));
+  };
+
+  const handlePdfUpload = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processUploadedFiles(Array.from(e.target.files));
     }
   };
 
@@ -724,6 +845,7 @@ export default function ManualReview({ selectedTenderId = '' }) {
                 id="pdf-file-upload-sidebar"
                 type="file"
                 accept=".pdf"
+                multiple
                 className="hidden"
                 onChange={handlePdfUpload}
               />
@@ -994,13 +1116,50 @@ export default function ManualReview({ selectedTenderId = '' }) {
                 onMarkPageRead={handleMarkPageRead}
               />
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-3">
-                <FileText size={48} className="text-gray-300 dark:text-gray-700" />
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400">
-                  No local PDF file stream attached for {selectedPdf ? selectedPdf.fileName : 'this document'}.
-                </p>
-                <p className="text-[11px] text-gray-400 max-w-xs">
-                  Click <span className="font-bold text-orange-500">Upload PDF</span> in the left panel to load and inspect pages.
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    processUploadedFiles(Array.from(e.dataTransfer.files));
+                  }
+                }}
+                className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4 border-2 border-dashed border-gray-300 dark:border-gray-800 rounded-xl m-4 bg-white/50 dark:bg-gray-900/50 hover:border-orange-400 transition"
+              >
+                <div className="p-3 bg-orange-100 dark:bg-orange-950/60 rounded-full text-orange-600 dark:text-orange-400">
+                  <FileUp size={36} />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">
+                    Attach PDF Document Stream
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 max-w-sm">
+                    No local PDF stream attached for <span className="font-semibold text-gray-700 dark:text-gray-300">{selectedPdf ? selectedPdf.fileName : 'this document'}</span> ({selectedPdf ? selectedPdf.vendorFolder : 'Vendor'}).
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label
+                    htmlFor="viewer-pdf-file-upload"
+                    className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-2 transition"
+                  >
+                    <Upload size={14} />
+                    <span>Browse & Attach PDF</span>
+                  </label>
+                  <input
+                    id="viewer-pdf-file-upload"
+                    type="file"
+                    accept=".pdf"
+                    multiple
+                    className="hidden"
+                    onChange={handlePdfUpload}
+                  />
+                </div>
+                <p className="text-[11px] text-gray-400">
+                  Or drag and drop your PDF file(s) directly here
                 </p>
               </div>
             )}

@@ -11,14 +11,13 @@
 // Root URL of the local Express/PostgreSQL backend. All API endpoint
 // constants below are derived from this so the host/port only needs
 // to change in one place.
-export const API_ROOT_URL = 'http://localhost:5000';
+export const API_ROOT_URL = '';
 
 export const API_ENDPOINTS = {
   bids: `${API_ROOT_URL}/api/bids`,
   tenders: `${API_ROOT_URL}/api/tenders`,
   logClient: `${API_ROOT_URL}/api/log/client`,
   logExtractedText: `${API_ROOT_URL}/api/log/extracted-text`,
-  extractFallback: `${API_ROOT_URL}/api/extract-fallback`,
 };
 
 // --- LocalStorage ---

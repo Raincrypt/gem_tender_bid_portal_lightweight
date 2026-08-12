@@ -23,10 +23,6 @@ import {
 } from 'lucide-react';
 
 import {
-  API_ENDPOINTS,
-} from '../config/config';
-
-import {
   verifyDateAfterCutoff,
   verifyMinistryDepartment,
   formatIndianCurrency,
@@ -251,19 +247,9 @@ export default function AdvancedTesting({ aiModel = 'gemini-2.5-flash' }) {
     }
   };
 
-  const callAiFallback = async (pageText) => {
-    try {
-      const res = await fetch(API_ENDPOINTS.extractFallback, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: pageText, model: aiModel }),
-      });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch (e) {
-      console.error('AI Fallback failed to respond:', e);
-      return null;
-    }
+  const callAiFallback = async () => {
+    // AI fallback disabled per configuration
+    return null;
   };
 
   const processSinglePdf = async (selectedFile) => {

@@ -44,6 +44,7 @@ import {
   extractPagesFromPdf,
   extractRecordsFromPages,
 } from '../services/pdfProcessor';
+import { savePdfBlob, getAllPdfBlobs } from '../services/pdfStore';
 
 // ========== CLIENT LOGGER ==========
 async function clientLogger(level, message, data = null) {
@@ -293,6 +294,18 @@ export default function Dashboard({
     };
 
     fetchFromPostgres();
+
+    // Restore cached PDF blobs from IndexedDB
+    getAllPdfBlobs().then((blobMap) => {
+      if (!isMounted) return;
+      Object.entries(blobMap).forEach(([key, blob]) => {
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          fileBlobsMapRef.current.set(key, url);
+        }
+      });
+    }).catch((e) => console.warn('Failed restoring PDF blobs from IndexedDB:', e));
+
     return () => {
       isMounted = false;
     };
@@ -609,20 +622,9 @@ export default function Dashboard({
 
   // ----- END PDF MODAL FUNCTIONS -----
 
-  const callAiFallback = async (pageText) => {
-    try {
-      const res = await fetch(API_ENDPOINTS.extractFallback, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: pageText }),
-      });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch (e) {
-      console.error('AI Fallback failed to respond:', e);
-      clientLogger('error', 'AI Fallback failed', { error: e.message });
-      return null;
-    }
+  const callAiFallback = async () => {
+    // AI fallback disabled per configuration
+    return null;
   };
 
   const parsePdfFileContextAsync = async (file, vendorName = null) => {
@@ -632,6 +634,12 @@ export default function Dashboard({
 
       const fileBlobUrl = URL.createObjectURL(file);
       fileBlobsMapRef.current.set(file.name, fileBlobUrl);
+
+      // Save PDF blob persistently to IndexedDB for Manual Review page & reloads
+      savePdfBlob(file.name, file);
+      if (vendorName) {
+        savePdfBlob(`${vendorName}::${file.name}`, file);
+      }
 
       // Log the extracted text
       await logExtractedText(file.name, pagesData, vendorName);
